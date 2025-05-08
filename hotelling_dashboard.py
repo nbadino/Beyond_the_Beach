@@ -86,40 +86,39 @@ def main():
             )
             
             # Display results
-            st.subheader("Simulation Results")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("### Final Locations")
-                for i, loc in enumerate(model.locations):
-                    st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
-                    
-            with col2:
-                st.write("### Final Prices")
-                for i, price in enumerate(model.prices):
-                    st.write(f"Firm {i+1}: {price:.2f}")
+            with st.expander("Simulation Results", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("### Final Locations")
+                    for i, loc in enumerate(model.locations):
+                        st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
+                        
+                with col2:
+                    st.write("### Final Prices")
+                    for i, price in enumerate(model.prices):
+                        st.write(f"Firm {i+1}: {price:.2f}")
             
             # Visualizations
-            st.write("### Market Visualization")
-            viz_col1, viz_col2 = st.columns(2)
-            
-            with viz_col1:
-                st.write("Market Segmentation")
-                fig = model.visualize(show_segmentation=True, show_density=False)
-                st.pyplot(plt.gcf())
-                plt.clf()
-            
-            with viz_col2:
-                st.write("Population Density")
-                fig = model.visualize(show_segmentation=False, show_density=True)
-                st.pyplot(plt.gcf())
-                plt.clf()
+            with st.expander("Market Visualization", expanded=True):
+                viz_col1, viz_col2 = st.columns(2)
+                
+                with viz_col1:
+                    st.write("#### Market Segmentation")
+                    fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=grid_size) # Pass grid_size
+                    st.pyplot(fig_seg)
+                    plt.clf() # Clear figure after displaying
+                
+                with viz_col2:
+                    st.write("#### Population Density")
+                    fig_den = model.visualize(show_segmentation=False, show_density=True, grid_size=grid_size) # Pass grid_size
+                    st.pyplot(fig_den)
+                    plt.clf() # Clear figure after displaying
             
             # Convergence plots
-            st.write("### Convergence Metrics")
-            model.plot_convergence()
-            st.pyplot(plt.gcf())
-            plt.clf()
+            with st.expander("Convergence Metrics", expanded=True):
+                model.plot_convergence()
+                st.pyplot(plt.gcf())
+                plt.clf() # Clear figure after displaying
 
 if __name__ == "__main__":
     main()
