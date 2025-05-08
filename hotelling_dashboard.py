@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+from streamlit_drawable_canvas import st_canvas
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
 def main():
@@ -13,7 +14,15 @@ def main():
         st.session_state.model = None
         st.session_state.converged = False
         st.session_state.current_profits = None
-    
+        st.session_state.iterations = 0
+        st.session_state.time_elapsed = 0
+        
+        # State for specific analysis results to prevent re-computation on unrelated widget changes
+        st.session_state.sensitivity_results_data = None
+        st.session_state.grid_test_results_data = None
+        st.session_state.landscape_plot_fig = None # Store the figure object
+        st.session_state.nash_deviation_output_data = None
+
     # ===== Sidebar Controls =====
     st.sidebar.header("Simulation Parameters")
     
@@ -162,11 +171,18 @@ def main():
             st.session_state.converged = sim_results['converged']
             st.session_state.iterations = sim_results['iterations']
             st.session_state.time_elapsed = sim_results['time_elapsed']
-            if temp_model_obj and sim_results['converged']: # Ensure model object exists and converged
+            if temp_model_obj and sim_results['converged']: 
                  st.session_state.current_profits = temp_model_obj.total_profit(grid_size=grid_size)
             else:
-                 st.session_state.current_profits = None # Or profits at last non-converged state
+                 st.session_state.current_profits = None
             st.session_state.simulation_run_once = True
+            
+            # Clear previous specific analysis results when a new main simulation is run
+            st.session_state.sensitivity_results_data = None
+            st.session_state.grid_test_results_data = None
+            st.session_state.landscape_plot_fig = None
+            st.session_state.nash_deviation_output_data = None
+
 
     # Display content if simulation has been run at least once
     if st.session_state.simulation_run_once and st.session_state.model:
@@ -439,103 +455,85 @@ def main():
                     if min_val >= max_val:
                         st.error("Minimum value must be less than maximum value.")
                     else:
-                        parameter_values = np.linspace(min_val, max_val, int(num_steps))
-                        results_sensitivity = {
-                            'param_values': [],
-                            'avg_prices': [],
-                            'avg_profits': [],
-                            'loc_std_dev_x': [],
-                            'loc_std_dev_y': []
+                        parameter_values_sweep = np.linspace(min_val, max_val, int(num_steps)) # Renamed to avoid conflict
+                        temp_results_sensitivity = { # Use a temporary dict
+                            'param_values': [], 'avg_prices': [], 'avg_profits': [],
+                            'loc_std_dev_x': [], 'loc_std_dev_y': []
                         }
-                        all_simulations_converged_in_sweep = True # Flag per tracciare la convergenza generale nello sweep
+                        all_simulations_converged_in_sweep = True
                         try:
                             with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
-                                for val in parameter_values:
-                                    # Access the main simulation model from session_state for base parameters
+                                for val in parameter_values_sweep:
                                     s_model = st.session_state.model
                                     current_params = {
-                                        "n_firms": n_firms, "market_shape": market_shape, # From sidebar
-                                        "beta": beta, "eta": eta, "d_type": d_type,       # From sidebar
-                                        "rho_type": rho_type, "density_params": density_centers_params, # From sidebar
+                                        "n_firms": n_firms, "market_shape": market_shape, 
+                                        "beta": beta, "eta": eta, "d_type": d_type,      
+                                        "rho_type": rho_type, "density_params": density_centers_params, 
                                         "c": s_model.c, "A": s_model.A, 
-                                        "max_price": s_model.max_price, "mu": s_model.mu # From session_state model
+                                        "max_price": s_model.max_price, "mu": s_model.mu 
                                     }
-                                
-                                if param_to_sweep == 'beta (price sensitivity)':
-                                    current_params["beta"] = val
-                                elif param_to_sweep == 'eta (elasticity)':
-                                    current_params["eta"] = val
-                                
-                                temp_model = HotellingTwoDimensional(**current_params)
-                                converged_sensitivity = temp_model.find_equilibrium(
-                                    max_iterations=max_iter, # Use main sim max_iter
-                                    grid_size=grid_size,     # Use main sim grid_size
-                                    verbose=False
-                                )
+                                    if param_to_sweep == 'beta (price sensitivity)': current_params["beta"] = val
+                                    elif param_to_sweep == 'eta (elasticity)': current_params["eta"] = val
+                                    
+                                    temp_model_sens = HotellingTwoDimensional(**current_params)
+                                    # Use find_equilibrium from the temp_model_sens instance
+                                    converged_info_sens = temp_model_sens.find_equilibrium(
+                                        max_iterations=max_iter, grid_size=grid_size, verbose=False, update_method=update_method
+                                    )
 
-                                if converged_sensitivity:
-                                    results_sensitivity['param_values'].append(val)
-                                    results_sensitivity['avg_prices'].append(np.mean(temp_model.prices))
-                                    current_total_profits = temp_model.total_profit(grid_size=grid_size)
-                                    results_sensitivity['avg_profits'].append(np.mean(current_total_profits))
-                                    results_sensitivity['loc_std_dev_x'].append(np.std(temp_model.locations[:, 0]))
-                                    results_sensitivity['loc_std_dev_y'].append(np.std(temp_model.locations[:, 1]))
-                                else:
-                                    # Handle non-convergence if necessary, e.g., by appending NaN or skipping
-                                    results_sensitivity['param_values'].append(val)
-                                    results_sensitivity['avg_prices'].append(np.nan)
-                                    results_sensitivity['avg_profits'].append(np.nan)
-                                    results_sensitivity['loc_std_dev_x'].append(np.nan)
-                                    results_sensitivity['loc_std_dev_y'].append(np.nan)
-                                    st.warning(f"Simulation did not converge for {param_to_sweep.split(' ')[0]} = {val:.2f}")
-                                    all_simulations_converged_in_sweep = False
+                                    if converged_info_sens['converged']:
+                                        temp_results_sensitivity['param_values'].append(val)
+                                        temp_results_sensitivity['avg_prices'].append(np.mean(temp_model_sens.prices))
+                                        current_total_profits_sens = temp_model_sens.total_profit(grid_size=grid_size)
+                                        temp_results_sensitivity['avg_profits'].append(np.mean(current_total_profits_sens))
+                                        temp_results_sensitivity['loc_std_dev_x'].append(np.std(temp_model_sens.locations[:, 0]))
+                                        temp_results_sensitivity['loc_std_dev_y'].append(np.std(temp_model_sens.locations[:, 1]))
+                                    else:
+                                        temp_results_sensitivity['param_values'].append(val)
+                                        temp_results_sensitivity['avg_prices'].append(np.nan)
+                                        temp_results_sensitivity['avg_profits'].append(np.nan)
+                                        temp_results_sensitivity['loc_std_dev_x'].append(np.nan)
+                                        temp_results_sensitivity['loc_std_dev_y'].append(np.nan)
+                                        st.warning(f"Simulation did not converge for {param_to_sweep.split(' ')[0]} = {val:.2f}")
+                                        all_simulations_converged_in_sweep = False
                             
-                            if not results_sensitivity['param_values']:
-                                st.error("Sensitivity analysis produced no results. All simulations may have failed immediately.")
+                            st.session_state.sensitivity_results_data = temp_results_sensitivity # Store in session state
+                            if not temp_results_sensitivity['param_values']:
+                                st.error("Sensitivity analysis produced no results.")
                             elif all_simulations_converged_in_sweep:
                                 st.success("Sensitivity analysis complete. All simulations converged.")
                             else:
                                 st.warning("Sensitivity analysis partially complete. Some simulations did not converge.")
-
                         except Exception as e:
                             st.error(f"An error occurred during sensitivity analysis: {str(e)}")
-                            st.exception(e) # Mostra il traceback completo
-                            results_sensitivity = {'param_values': []} # Resetta per evitare errori di plotting successivi
+                            st.exception(e)
+                            st.session_state.sensitivity_results_data = None 
+                
+                # Display sensitivity analysis results if they exist in session state
+                if st.session_state.sensitivity_results_data:
+                    results_sensitivity_to_plot = st.session_state.sensitivity_results_data
+                    if results_sensitivity_to_plot['param_values'] and \
+                       any(not np.isnan(p) for p in results_sensitivity_to_plot.get('avg_prices', [])):
+                        
+                        param_name_label = param_to_sweep.split(' ')[0]
+                        fig_sens, axs_sens = plt.subplots(2, 2, figsize=(12, 10))
+                        fig_sens.suptitle(f"Sensitivity Analysis: Impact of {param_name_label}", fontsize=16)
 
-                        # Controlla se ci sono dati validi da plottare (almeno un valore non NaN)
-                        if results_sensitivity['param_values'] and \
-                           any(not np.isnan(p) for p in results_sensitivity.get('avg_prices', [])):
-                            param_name_label = param_to_sweep.split(' ')[0] # e.g. "beta" or "eta"
-                            
-                            fig_sens, axs_sens = plt.subplots(2, 2, figsize=(12, 10))
-                            fig_sens.suptitle(f"Sensitivity Analysis: Impact of {param_name_label}", fontsize=16)
-
-                            axs_sens[0,0].plot(results_sensitivity['param_values'], results_sensitivity['avg_prices'], marker='o')
-                            axs_sens[0,0].set_xlabel(param_name_label)
-                            axs_sens[0,0].set_ylabel("Average Price")
-                            axs_sens[0,0].set_title("Average Price")
-
-                            axs_sens[0,1].plot(results_sensitivity['param_values'], results_sensitivity['avg_profits'], marker='o')
-                            axs_sens[0,1].set_xlabel(param_name_label)
-                            axs_sens[0,1].set_ylabel("Average Profit per Firm")
-                            axs_sens[0,1].set_title("Average Profit")
-
-                            axs_sens[1,0].plot(results_sensitivity['param_values'], results_sensitivity['loc_std_dev_x'], marker='o')
-                            axs_sens[1,0].set_xlabel(param_name_label)
-                            axs_sens[1,0].set_ylabel("Std Dev of X-Locations")
-                            axs_sens[1,0].set_title("Location Dispersion (X)")
-                            
-                            axs_sens[1,1].plot(results_sensitivity['param_values'], results_sensitivity['loc_std_dev_y'], marker='o')
-                            axs_sens[1,1].set_xlabel(param_name_label)
-                            axs_sens[1,1].set_ylabel("Std Dev of Y-Locations")
-                            axs_sens[1,1].set_title("Location Dispersion (Y)")
-
-                            plt.tight_layout(rect=[0, 0, 1, 0.96]) # Adjust layout to make space for suptitle
-                            st.pyplot(fig_sens)
-                            plt.clf()
-                        else:
-                            st.info("No data to plot for sensitivity analysis (all simulations might have failed to converge).")
-
+                        axs_sens[0,0].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['avg_prices'], marker='o')
+                        axs_sens[0,0].set_xlabel(param_name_label); axs_sens[0,0].set_ylabel("Average Price"); axs_sens[0,0].set_title("Average Price")
+                        axs_sens[0,1].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['avg_profits'], marker='o')
+                        axs_sens[0,1].set_xlabel(param_name_label); axs_sens[0,1].set_ylabel("Average Profit per Firm"); axs_sens[0,1].set_title("Average Profit")
+                        axs_sens[1,0].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['loc_std_dev_x'], marker='o')
+                        axs_sens[1,0].set_xlabel(param_name_label); axs_sens[1,0].set_ylabel("Std Dev of X-Locations"); axs_sens[1,0].set_title("Location Dispersion (X)")
+                        axs_sens[1,1].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['loc_std_dev_y'], marker='o')
+                        axs_sens[1,1].set_xlabel(param_name_label); axs_sens[1,1].set_ylabel("Std Dev of Y-Locations"); axs_sens[1,1].set_title("Location Dispersion (Y)")
+                        
+                        plt.tight_layout(rect=[0, 0, 1, 0.96])
+                        st.pyplot(fig_sens)
+                        plt.clf()
+                    else:
+                        st.info("No valid data to plot from the last sensitivity analysis.")
+                
                 st.markdown("---")
                 # --- Population Density Correlation Section ---
                 st.subheader("Population Density-Location Correlation")
@@ -608,46 +606,111 @@ def main():
                     current_profit_firm = current_profits[firm_idx_check] if current_profits is not None else model.profit(firm_idx_check, grid_size)
                     st.write(f"**{firm_to_check}'s Current Profit (at equilibrium): {current_profit_firm:.4f}**")
 
-                    deviation_type = st.radio(
+                    deviation_type_choice = st.radio( # Renamed variable
                         "Select deviation type:",
-                        ("Price", "Location X", "Location Y"),
-                        key="nash_deviation_type"
+                        ("Price", "Location (Interactive Map)"), # Changed Location X/Y to one option
+                        key="nash_deviation_type_choice"
                     )
                     
-                    dev_amount = st.number_input("Deviation amount (e.g., +/- 0.01 or 0.1)", value=0.01, step=0.005, format="%.3f", key="nash_dev_amount")
+                    deviated_price_nash = None # Initialize
+                    deviated_location_nash = None # Initialize
 
-                    if st.button("Check Profit with Deviation", key="nash_check_button"):
-                        deviated_price = None
-                        deviated_location = None
-                        original_price = model.prices[firm_idx_check]
-                        original_location = model.locations[firm_idx_check].copy()
-
-                        if deviation_type == "Price":
-                            deviated_price = original_price + dev_amount
-                            # Ensure price is within bounds [c, max_price]
-                            deviated_price = np.clip(deviated_price, model.c, model.max_price) 
-                        elif deviation_type == "Location X":
-                            deviated_location = original_location.copy()
-                            deviated_location[0] += dev_amount
-                            # Ensure location is within market bounds
-                            deviated_location[0] = np.clip(deviated_location[0], 0, model.market_shape[0])
-                        elif deviation_type == "Location Y":
-                            deviated_location = original_location.copy()
-                            deviated_location[1] += dev_amount
-                            # Ensure location is within market bounds
-                            deviated_location[1] = np.clip(deviated_location[1], 0, model.market_shape[1])
+                    if deviation_type_choice == "Price":
+                        dev_amount_price = st.number_input("Price deviation amount (e.g., +/- 0.1)", value=0.1, step=0.01, format="%.2f", key="nash_dev_amount_price")
+                        if st.button("Check Profit with Price Deviation", key="nash_check_price_button"):
+                            original_price = model.prices[firm_idx_check]
+                            deviated_price_nash = original_price + dev_amount_price
+                            deviated_price_nash = np.clip(deviated_price_nash, model.c, model.max_price)
+                            
+                            profit_with_deviation = model.calculate_firm_profit_for_deviation(
+                                firm_idx_check, deviation_price=deviated_price_nash, grid_size=grid_size 
+                            )
+                            st.session_state.nash_deviation_output_data = {
+                                "firm": firm_to_check, "type": "Price", "value": deviated_price_nash,
+                                "profit": profit_with_deviation, "change": profit_with_deviation - current_profit_firm
+                            }
+                    
+                    elif deviation_type_choice == "Location (Interactive Map)":
+                        st.write("Click on the map to select a new location for the firm.")
                         
-                        profit_with_deviation = model.calculate_firm_profit_for_deviation(
-                            firm_idx_check, 
-                            deviation_price=deviated_price,
-                            deviation_location=deviated_location,
-                            grid_size=grid_size 
+                        # --- Drawable Canvas for Location Selection ---
+                        # Define canvas size (can be adjusted)
+                        canvas_width = 400
+                        canvas_height = int(canvas_width * (model.market_shape[1] / model.market_shape[0])) if model.market_shape[0] > 0 else canvas_width
+
+                        # Create a simple background image of the market with firm locations
+                        fig_map, ax_map = plt.subplots(figsize=(canvas_width/80, canvas_height/80)) # Approx inches
+                        ax_map.set_xlim(0, model.market_shape[0])
+                        ax_map.set_ylim(0, model.market_shape[1])
+                        ax_map.set_xticks([])
+                        ax_map.set_yticks([])
+                        ax_map.set_aspect('equal', adjustable='box')
+                        
+                        # Plot other firms
+                        for i in range(model.n_firms):
+                            if i != firm_idx_check:
+                                ax_map.scatter(model.locations[i,0], model.locations[i,1], s=50, c='gray', marker='o', label=f"Firm {i+1}")
+                        # Plot current firm being checked
+                        ax_map.scatter(model.locations[firm_idx_check,0], model.locations[firm_idx_check,1], s=70, c='red', marker='X', label=f"{firm_to_check} (Current)")
+                        # ax_map.legend(fontsize='x-small') # Optional legend
+                        
+                        # Convert plot to an image for canvas background
+                        from io import BytesIO
+                        img_data = BytesIO()
+                        fig_map.savefig(img_data, format='png', bbox_inches='tight', pad_inches=0)
+                        img_data.seek(0)
+                        plt.close(fig_map) # Close the figure to free memory
+
+                        canvas_result = st_canvas(
+                            fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
+                            stroke_width=0, # No stroke for points
+                            stroke_color="#000000",
+                            background_image=img_data, # Use the plot as background
+                            update_streamlit=True, # Rerun script on drawing
+                            height=canvas_height,
+                            width=canvas_width,
+                            drawing_mode="point", # Allow placing points
+                            point_display_radius=5,
+                            key="nash_location_canvas",
                         )
-                        st.write(f"Profit if {firm_to_check} deviates by {dev_amount} in {deviation_type}: **{profit_with_deviation:.4f}**")
-                        profit_change = profit_with_deviation - current_profit_firm
-                        st.write(f"Change in profit: {profit_change:+.4f}")
-                        if profit_change > 1e-5: # Allow for small numerical noise
-                            st.warning("Firm could potentially increase profit by deviating. This might indicate the point is not a strict Nash Equilibrium or tolerance is too loose.")
+
+                        if canvas_result.json_data is not None and canvas_result.json_data["objects"]:
+                            # Get the last drawn point
+                            last_point = canvas_result.json_data["objects"][-1]
+                            # Canvas coordinates are in pixels, need to scale to market coordinates
+                            # last_point["left"] is x, last_point["top"] is y from top-left
+                            clicked_x_canvas = last_point["left"]
+                            clicked_y_canvas = last_point["top"]
+
+                            # Scale to market coordinates
+                            # Assuming canvas (0,0) is top-left and market (0,0) is bottom-left
+                            market_x = (clicked_x_canvas / canvas_width) * model.market_shape[0]
+                            market_y = ((canvas_height - clicked_y_canvas) / canvas_height) * model.market_shape[1] # Invert Y
+                            
+                            deviated_location_nash = np.array([market_x, market_y])
+                            # Clip to market bounds just in case
+                            deviated_location_nash[0] = np.clip(deviated_location_nash[0], 0, model.market_shape[0])
+                            deviated_location_nash[1] = np.clip(deviated_location_nash[1], 0, model.market_shape[1])
+
+                            st.write(f"Selected new location: ({deviated_location_nash[0]:.2f}, {deviated_location_nash[1]:.2f})")
+
+                            if st.button("Check Profit with Selected Location", key="nash_check_loc_button"):
+                                profit_with_deviation = model.calculate_firm_profit_for_deviation(
+                                    firm_idx_check, deviation_location=deviated_location_nash, grid_size=grid_size
+                                )
+                                st.session_state.nash_deviation_output_data = {
+                                    "firm": firm_to_check, "type": "Location", "value": tuple(deviated_location_nash),
+                                    "profit": profit_with_deviation, "change": profit_with_deviation - current_profit_firm
+                                }
+                    
+                    # Display Nash deviation results if they exist in session state
+                    if st.session_state.nash_deviation_output_data:
+                        res = st.session_state.nash_deviation_output_data
+                        val_str = f"({res['value'][0]:.2f}, {res['value'][1]:.2f})" if res['type'] == "Location" else f"{res['value']:.2f}"
+                        st.write(f"Profit if {res['firm']} deviates in {res['type']} to {val_str}: **{res['profit']:.4f}**")
+                        st.write(f"Change in profit: {res['change']:+.4f}")
+                        if res['change'] > 1e-5:
+                            st.warning("Firm could potentially increase profit by deviating.")
                         else:
                             st.success("Firm does not appear to increase profit by this deviation.")
                 else:
@@ -666,58 +729,55 @@ def main():
                 
                 if st.button("Run Grid Resolution Test", key="grid_robust_button"):
                     try:
-                        grid_sizes_list = [int(s.strip()) for s in grid_sizes_to_test_str.split(',') if s.strip()]
-                        if not (2 <= len(grid_sizes_list) <= 4): # Limit to 2-4 for practicality
+                        grid_sizes_list_test = [int(s.strip()) for s in grid_sizes_to_test_str.split(',') if s.strip()] # Renamed
+                        if not (2 <= len(grid_sizes_list_test) <= 4): 
                             st.error("Please enter 2 to 4 valid, comma-separated grid sizes.")
                         else:
-                            results_grid_robustness = []
+                            temp_results_grid_robustness = [] # Use a temporary list
                             with st.spinner("Running grid resolution tests..."):
-                                for test_gs in grid_sizes_list:
+                                for test_gs in grid_sizes_list_test:
                                     if test_gs <= 0:
                                         st.warning(f"Skipping invalid grid size: {test_gs}")
                                         continue
                                     
-                                    # Create a temporary model instance with current sidebar parameters
-                                    # but with the test_gs
+                                    s_model_grid = st.session_state.model # Access model from session state
                                     temp_params_for_grid_test = {
                                         "n_firms": n_firms, "market_shape": market_shape,
                                         "beta": beta, "eta": eta, "d_type": d_type,
                                         "rho_type": rho_type, "density_params": density_centers_params,
-                                        "c": model.c, "A": model.A, 
-                                        "max_price": model.max_price, "mu": model.mu
+                                        "c": s_model_grid.c, "A": s_model_grid.A, 
+                                        "max_price": s_model_grid.max_price, "mu": s_model_grid.mu
                                     }
                                     temp_model_grid_test = HotellingTwoDimensional(**temp_params_for_grid_test)
                                     
                                     sim_res_gs = temp_model_grid_test.find_equilibrium(
-                                        max_iterations=max_iter, # Use main sim max_iter
-                                        grid_size=test_gs,       # Use the test grid_size
-                                        update_method=update_method, # Use main sim update_method
-                                        verbose=False
+                                        max_iterations=max_iter, grid_size=test_gs,       
+                                        update_method=update_method, verbose=False
                                     )
                                     
                                     total_profit_val = None
                                     if sim_res_gs['converged']:
                                         total_profit_val = np.sum(temp_model_grid_test.total_profit(grid_size=test_gs))
                                         
-                                    results_grid_robustness.append({
-                                        'Grid Size': test_gs,
-                                        'Converged': sim_res_gs['converged'],
-                                        'Iterations': sim_res_gs['iterations'],
-                                        'Time (s)': f"{sim_res_gs['time_elapsed']:.2f}",
+                                    temp_results_grid_robustness.append({
+                                        'Grid Size': test_gs, 'Converged': sim_res_gs['converged'],
+                                        'Iterations': sim_res_gs['iterations'], 'Time (s)': f"{sim_res_gs['time_elapsed']:.2f}",
                                         'Total Profit': f"{total_profit_val:.2f}" if total_profit_val is not None else "N/A"
                                     })
-                            
-                            if results_grid_robustness:
-                                st.write("### Grid Resolution Test Results:")
-                                st.table(results_grid_robustness)
-                            else:
-                                st.info("No valid grid sizes were tested.")
-                                
+                            st.session_state.grid_test_results_data = temp_results_grid_robustness # Store in session state
                     except ValueError:
                         st.error("Invalid input for grid sizes. Please use comma-separated numbers (e.g., 20,30,40).")
                     except Exception as e_grid:
                         st.error(f"An error occurred during grid resolution test: {str(e_grid)}")
                         st.exception(e_grid)
+                        st.session_state.grid_test_results_data = None
+                
+                # Display grid resolution test results if they exist in session state
+                if st.session_state.grid_test_results_data:
+                    st.write("### Grid Resolution Test Results:")
+                    st.table(st.session_state.grid_test_results_data)
+                elif st.session_state.grid_test_results_data == []: # Explicitly check for empty list if no valid sizes were tested
+                     st.info("No valid grid sizes were tested in the last run.")
             
             with tab_advanced_analysis:
                 st.header("Advanced Analysis & Metrics")
@@ -747,35 +807,45 @@ def main():
 
                     if st.button("Generate Profit Landscape", key="generate_landscape_button"):
                         with st.spinner(f"Calculating profit landscape for {landscape_firm_choice}..."):
-                            profit_matrix, x_coords, y_coords = model.calculate_profit_landscape(
+                            profit_matrix, x_coords_landscape, y_coords_landscape = model.calculate_profit_landscape( # Renamed coords
                                 firm_idx=landscape_firm_idx,
                                 landscape_grid_size=landscape_display_grid_size,
                                 profit_calc_grid_size=profit_calc_grid_size_for_landscape
                             )
                         
-                        fig_landscape, ax_landscape = plt.subplots(figsize=(8, 7))
-                        im = ax_landscape.imshow(profit_matrix.T, extent=[x_coords.min(), x_coords.max(), y_coords.min(), y_coords.max()], 
+                        fig_landscape_plot, ax_landscape_plot = plt.subplots(figsize=(8, 7)) # Renamed fig/ax
+                        im = ax_landscape_plot.imshow(profit_matrix.T, 
+                                                 extent=[x_coords_landscape.min(), x_coords_landscape.max(), 
+                                                         y_coords_landscape.min(), y_coords_landscape.max()], 
                                                  origin='lower', aspect='auto', cmap='viridis', interpolation='bilinear')
-                        fig_landscape.colorbar(im, ax=ax_landscape, label=f"{landscape_firm_choice} Profit")
+                        fig_landscape_plot.colorbar(im, ax=ax_landscape_plot, label=f"{landscape_firm_choice} Profit")
                         
-                        # Plot other firms' locations
                         for i in range(model.n_firms):
                             if i != landscape_firm_idx:
-                                ax_landscape.scatter(model.locations[i,0], model.locations[i,1], 
+                                ax_landscape_plot.scatter(model.locations[i,0], model.locations[i,1], 
                                                      s=80, c='white', edgecolor='black', marker='o', 
                                                      label=f"Firm {i+1} (Fixed)")
-                        
-                        # Plot selected firm's equilibrium location
-                        ax_landscape.scatter(model.locations[landscape_firm_idx,0], model.locations[landscape_firm_idx,1], 
+                        ax_landscape_plot.scatter(model.locations[landscape_firm_idx,0], model.locations[landscape_firm_idx,1], 
                                              s=120, c='red', edgecolor='black', marker='X', 
                                              label=f"{landscape_firm_choice} (Equilibrium)")
                         
-                        ax_landscape.set_title(f"Profit Landscape for {landscape_firm_choice}")
-                        ax_landscape.set_xlabel("X-coordinate")
-                        ax_landscape.set_ylabel("Y-coordinate")
-                        ax_landscape.legend(fontsize='small')
-                        st.pyplot(fig_landscape)
-                        plt.clf()
+                        ax_landscape_plot.set_title(f"Profit Landscape for {landscape_firm_choice}")
+                        ax_landscape_plot.set_xlabel("X-coordinate"); ax_landscape_plot.set_ylabel("Y-coordinate")
+                        ax_landscape_plot.legend(fontsize='small')
+                        st.session_state.landscape_plot_fig = fig_landscape_plot # Store figure in session state
+                    
+                # Display landscape plot if it exists in session state
+                if st.session_state.landscape_plot_fig:
+                    st.pyplot(st.session_state.landscape_plot_fig)
+                    # plt.clf() # Clearing the global figure might not be needed if we store the fig object
+                                # However, if the same fig object is modified elsewhere, this could be an issue.
+                                # For safety, if we are done with this specific figure, we can close it.
+                                # Or, ensure a new figure is created each time "Generate" is pressed.
+                                # The current logic creates a new fig_landscape_plot each time.
+                                # To prevent potential memory leaks with many regenerations, explicit close is better.
+                                # plt.close(st.session_state.landscape_plot_fig) # This would close it permanently.
+                                # For now, let's rely on Streamlit's st.pyplot handling.
+                                # If issues arise, we can add plt.clf() or manage figures more explicitly.
                 else:
                     st.info("Run a simulation that converges to an equilibrium to perform profit landscape analysis.")
 
