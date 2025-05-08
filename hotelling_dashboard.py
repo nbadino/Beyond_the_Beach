@@ -149,6 +149,7 @@ def main():
 
             with tab_detailed_props:
                 st.header("Detailed Equilibrium Properties")
+                st.write("Test: Contenuto visibile per la scheda Proprietà Dettagliate dell'Equilibrio.") # Riga di diagnostica
 
                 # Firm Locations Analysis
                 st.subheader("Firm Locations")
