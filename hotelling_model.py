@@ -305,7 +305,29 @@ class HotellingTwoDimensional:
         self.locations[firm_idx] = _original_location_firm_idx
         
         return profit_with_deviation
-    
+
+    def calculate_profit_landscape(self, firm_idx, landscape_grid_size=15, profit_calc_grid_size=30):
+        """
+        Calculates the profit for a firm across a grid of possible locations,
+        keeping its price and other firms' strategies fixed.
+        """
+        original_firm_location = self.locations[firm_idx].copy()
+        
+        x_coords = np.linspace(0, self.market_shape[0], landscape_grid_size)
+        y_coords = np.linspace(0, self.market_shape[1], landscape_grid_size)
+        
+        profit_matrix = np.zeros((landscape_grid_size, landscape_grid_size))
+        
+        for r, ly in enumerate(y_coords): # Iterate rows (y-coordinates for imshow)
+            for c, lx in enumerate(x_coords): # Iterate columns (x-coordinates for imshow)
+                self.locations[firm_idx] = np.array([lx, ly])
+                profit_matrix[r, c] = self.profit(firm_idx, profit_calc_grid_size)
+        
+        # Restore the original location of the firm
+        self.locations[firm_idx] = original_firm_location
+        
+        return profit_matrix, x_coords, y_coords
+
     def max_transport_cost(self):
         """Calculate maximum possible transportation cost in the market."""
         if self.d_type == 'euclidean':
@@ -564,10 +586,10 @@ class HotellingTwoDimensional:
             ax.text(0.5, 0.5, "No history available.", ha='center', va='center')
             return fig
         
-        fig, axs = plt.subplots(3, 1, figsize=(10, 12))
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10)) # Changed to 2x2 layout
         
         # Plot price convergence
-        ax1 = axs[0]
+        ax1 = axs[0,0]
         price_history = np.array(self.price_history)
         for i in range(self.n_firms):
             ax1.plot(price_history[:, i], label=f'Firm {i+1}')
@@ -577,29 +599,56 @@ class HotellingTwoDimensional:
         ax1.legend()
         
         # Plot location convergence (Euclidean distance from final position)
-        ax2 = axs[1]
-        location_history = np.array(self.location_history)
-        final_locations = location_history[-1]
-        
-        for i in range(self.n_firms):
-            distances = np.sqrt(np.sum((location_history[:, i] - final_locations[i])**2, axis=1))
-            ax2.plot(distances, label=f'Firm {i+1}')
-        
-        ax2.set_title('Location Convergence (Distance from Final)')
-        ax2.set_xlabel('Iteration')
-        ax2.set_ylabel('Distance')
-        ax2.set_yscale('log')  # Log scale to see small changes
-        ax2.legend()
-        
+        ax2 = axs[0,1]
+        location_history_np = np.array(self.location_history) # Ensure it's a NumPy array
+        if location_history_np.ndim == 3 and location_history_np.shape[0] > 0: # Check if history is not empty and has correct dimensions
+            final_locations = location_history_np[-1]
+            
+            for i in range(self.n_firms):
+                # Ensure firm_history and final_location_firm are 2D arrays for subtraction
+                firm_history = location_history_np[:, i, :]
+                final_location_firm = final_locations[i, :]
+                distances = np.sqrt(np.sum((firm_history - final_location_firm)**2, axis=1))
+                ax2.plot(distances, label=f'Firm {i+1}')
+            
+            ax2.set_title('Location Convergence (Distance from Final)')
+            ax2.set_xlabel('Iteration')
+            ax2.set_ylabel('Distance')
+            ax2.set_yscale('log')  # Log scale to see small changes
+            ax2.legend()
+        else:
+            ax2.text(0.5, 0.5, "Location history not available or in unexpected format.", ha='center', va='center')
+
+
         # Plot profit convergence
-        ax3 = axs[2]
-        profit_history = np.array(self.profit_history)
-        for i in range(self.n_firms):
-            ax3.plot(profit_history[:, i], label=f'Firm {i+1}')
-        ax3.set_title('Profit Convergence')
-        ax3.set_xlabel('Iteration')
-        ax3.set_ylabel('Profit')
-        ax3.legend()
+        ax3 = axs[1,0]
+        profit_history_np = np.array(self.profit_history) # Ensure NumPy array
+        if profit_history_np.ndim == 2 and profit_history_np.shape[0] > 0: # Check if history is not empty
+            for i in range(self.n_firms):
+                ax3.plot(profit_history_np[:, i], label=f'Firm {i+1}')
+            ax3.set_title('Profit Convergence')
+            ax3.set_xlabel('Iteration')
+            ax3.set_ylabel('Profit')
+            ax3.legend()
+        else:
+            ax3.text(0.5, 0.5, "Profit history not available or in unexpected format.", ha='center', va='center')
+
+        # Plot location trajectories
+        ax4 = axs[1,1]
+        if location_history_np.ndim == 3 and location_history_np.shape[0] > 0:
+            colors = plt.cm.viridis(np.linspace(0, 1, self.n_firms))
+            for i in range(self.n_firms):
+                ax4.plot(location_history_np[:, i, 0], location_history_np[:, i, 1], marker='o', markersize=2, linestyle='-', color=colors[i], label=f'Firm {i+1}')
+                ax4.scatter(location_history_np[-1, i, 0], location_history_np[-1, i, 1], marker='X', s=100, color=colors[i], edgecolor='black', zorder=5) # Final position
+            ax4.set_xlim(0, self.market_shape[0])
+            ax4.set_ylim(0, self.market_shape[1])
+            ax4.set_title('Location Trajectories')
+            ax4.set_xlabel('X-coordinate')
+            ax4.set_ylabel('Y-coordinate')
+            ax4.legend(fontsize='small')
+            ax4.set_aspect('equal', adjustable='box')
+        else:
+            ax4.text(0.5, 0.5, "Location history not available for trajectories.", ha='center', va='center')
         
         plt.tight_layout()
         return fig

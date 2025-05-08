@@ -126,12 +126,14 @@ def main():
 
 
         # Create tabs for organizing output
-        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density, tab_dynamics_robustness = st.tabs([
+        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density, \
+        tab_dynamics_robustness, tab_advanced_analysis = st.tabs([
             "📈 Visualizations & Overview", 
             "📊 Detailed Equilibrium Properties", 
             "📝 Theoretical Verification",
             "🔬 Sensitivity & Density Analysis",
-            "⚙️ Dynamics & Robustness"
+            "⚙️ Dynamics & Robustness",
+            "🗺️ Advanced Analysis & Metrics"
         ])
 
         with tab_viz_overview:
@@ -663,6 +665,67 @@ def main():
                     except Exception as e_grid:
                         st.error(f"An error occurred during grid resolution test: {str(e_grid)}")
                         st.exception(e_grid)
+            
+            with tab_advanced_analysis:
+                st.header("Advanced Analysis & Metrics")
+
+                # --- Profit Landscape Analysis ---
+                st.subheader("Profit Landscape Analysis")
+                if converged:
+                    st.write("Visualize the profit a selected firm would make by moving to different locations, "
+                             "keeping its current price and other firms' strategies fixed.")
+
+                    landscape_firm_options = [f"Firm {i+1}" for i in range(model.n_firms)]
+                    landscape_firm_choice = st.selectbox("Select firm for landscape analysis:", 
+                                                         options=landscape_firm_options, 
+                                                         key="landscape_firm_choice")
+                    landscape_firm_idx = int(landscape_firm_choice.split(" ")[1]) - 1
+
+                    landscape_display_grid_size = st.slider(
+                        "Landscape Visualization Grid Size:", 
+                        min_value=10, max_value=30, value=15, step=1, 
+                        key="landscape_viz_grid",
+                        help="Resolution of the grid for visualizing the profit landscape. Higher values are more detailed but slower."
+                    )
+                    
+                    # profit_calc_grid_size for the internal profit calculation can be fixed or linked to main sim grid_size
+                    # For simplicity, let's use the main simulation's grid_size
+                    profit_calc_grid_size_for_landscape = grid_size 
+
+                    if st.button("Generate Profit Landscape", key="generate_landscape_button"):
+                        with st.spinner(f"Calculating profit landscape for {landscape_firm_choice}..."):
+                            profit_matrix, x_coords, y_coords = model.calculate_profit_landscape(
+                                firm_idx=landscape_firm_idx,
+                                landscape_grid_size=landscape_display_grid_size,
+                                profit_calc_grid_size=profit_calc_grid_size_for_landscape
+                            )
+                        
+                        fig_landscape, ax_landscape = plt.subplots(figsize=(8, 7))
+                        im = ax_landscape.imshow(profit_matrix.T, extent=[x_coords.min(), x_coords.max(), y_coords.min(), y_coords.max()], 
+                                                 origin='lower', aspect='auto', cmap='viridis', interpolation='bilinear')
+                        fig_landscape.colorbar(im, ax=ax_landscape, label=f"{landscape_firm_choice} Profit")
+                        
+                        # Plot other firms' locations
+                        for i in range(model.n_firms):
+                            if i != landscape_firm_idx:
+                                ax_landscape.scatter(model.locations[i,0], model.locations[i,1], 
+                                                     s=80, c='white', edgecolor='black', marker='o', 
+                                                     label=f"Firm {i+1} (Fixed)")
+                        
+                        # Plot selected firm's equilibrium location
+                        ax_landscape.scatter(model.locations[landscape_firm_idx,0], model.locations[landscape_firm_idx,1], 
+                                             s=120, c='red', edgecolor='black', marker='X', 
+                                             label=f"{landscape_firm_choice} (Equilibrium)")
+                        
+                        ax_landscape.set_title(f"Profit Landscape for {landscape_firm_choice}")
+                        ax_landscape.set_xlabel("X-coordinate")
+                        ax_landscape.set_ylabel("Y-coordinate")
+                        ax_landscape.legend(fontsize='small')
+                        st.pyplot(fig_landscape)
+                        plt.clf()
+                else:
+                    st.info("Run a simulation that converges to an equilibrium to perform profit landscape analysis.")
+
 
     else:
         st.info("Click 'Run Simulation' in the sidebar to start.")
