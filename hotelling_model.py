@@ -261,15 +261,50 @@ class HotellingTwoDimensional:
                      f"Time = {elapsed:.2f}s")
             
             if price_change < tolerance and location_change < tolerance:
+                elapsed_time_at_convergence = time.time() - start_time # Capture time at convergence
                 if verbose:
-                    elapsed = time.time() - start_time
-                    print(f"Converged after {iteration+1} iterations in {elapsed:.2f}s.")
-                return True
+                    print(f"Converged after {final_iteration} iterations in {elapsed_time_at_convergence:.2f}s.")
+                converged_status = True
+                # Store final iteration and time before breaking
+                self.last_run_iterations = final_iteration
+                self.last_run_time = elapsed_time_at_convergence
+                break # Exit the loop once converged
         
-        if verbose:
-            elapsed = time.time() - start_time
-            print(f"Did not converge after {max_iterations} iterations in {elapsed:.2f}s.")
-        return False
+        # After the loop (either converged and broke, or max_iterations reached)
+        if not converged_status: # If loop finished due to max_iterations
+            elapsed_time_at_end = time.time() - start_time
+            self.last_run_iterations = final_iteration # final_iteration will be max_iterations
+            self.last_run_time = elapsed_time_at_end
+            if verbose:
+                print(f"Did not converge after {final_iteration} iterations in {elapsed_time_at_end:.2f}s.")
+        
+        return {'converged': converged_status, 'iterations': self.last_run_iterations, 'time_elapsed': self.last_run_time}
+
+    def calculate_firm_profit_for_deviation(self, firm_idx, deviation_price=None, deviation_location=None, grid_size=30):
+        """
+        Calculates the profit for a specific firm if it deviates to a new price or location,
+        without altering the model's current state.
+        Other firms' prices and locations are taken from the model's current state.
+        """
+        # Store original state of the deviating firm
+        _original_price_firm_idx = self.prices[firm_idx]
+        _original_location_firm_idx = self.locations[firm_idx].copy()
+
+        # Apply deviations temporarily to the specific firm
+        if deviation_price is not None:
+            self.prices[firm_idx] = deviation_price
+        if deviation_location is not None:
+            self.locations[firm_idx] = np.array(deviation_location)
+        
+        # Calculate profit. The self.profit method will use the current state of 
+        # self.prices and self.locations, where only firm_idx has deviated.
+        profit_with_deviation = self.profit(firm_idx, grid_size)
+
+        # Restore the original state of the deviating firm to self.prices and self.locations
+        self.prices[firm_idx] = _original_price_firm_idx
+        self.locations[firm_idx] = _original_location_firm_idx
+        
+        return profit_with_deviation
     
     def max_transport_cost(self):
         """Calculate maximum possible transportation cost in the market."""
