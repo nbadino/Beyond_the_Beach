@@ -1,9 +1,7 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from streamlit_drawable_canvas import st_canvas
-from PIL import Image # Import Pillow Image
-import base64 # Import base64
+# streamlit_drawable_canvas, PIL.Image, base64 non sono più necessari
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
 def main():
@@ -608,115 +606,56 @@ def main():
                     current_profit_firm = current_profits[firm_idx_check] if current_profits is not None else model.profit(firm_idx_check, grid_size)
                     st.write(f"**{firm_to_check}'s Current Profit (at equilibrium): {current_profit_firm:.4f}**")
 
-                    deviation_type_choice = st.radio( # Renamed variable
+                    deviation_type_choice = st.radio(
                         "Select deviation type:",
-                        ("Price", "Location (Interactive Map)"), # Changed Location X/Y to one option
+                        ("Price", "Location X", "Location Y"), # Reverted to separate X and Y
                         key="nash_deviation_type_choice"
                     )
                     
-                    deviated_price_nash = None # Initialize
-                    deviated_location_nash = None # Initialize
+                    dev_amount = st.number_input("Deviation amount (e.g., +/- 0.01 or 0.1)", value=0.01, step=0.005, format="%.3f", key="nash_dev_amount")
 
-                    if deviation_type_choice == "Price":
-                        dev_amount_price = st.number_input("Price deviation amount (e.g., +/- 0.1)", value=0.1, step=0.01, format="%.2f", key="nash_dev_amount_price")
-                        if st.button("Check Profit with Price Deviation", key="nash_check_price_button"):
-                            original_price = model.prices[firm_idx_check]
-                            deviated_price_nash = original_price + dev_amount_price
+                    if st.button("Check Profit with Deviation", key="nash_check_deviation_button"):
+                        deviated_price_nash = None
+                        deviated_location_nash = None
+                        original_price = model.prices[firm_idx_check]
+                        original_location = model.locations[firm_idx_check].copy()
+                        value_description = "" # To describe the deviation in the output
+
+                        if deviation_type_choice == "Price":
+                            deviated_price_nash = original_price + dev_amount
                             deviated_price_nash = np.clip(deviated_price_nash, model.c, model.max_price)
-                            
-                            profit_with_deviation = model.calculate_firm_profit_for_deviation(
-                                firm_idx_check, deviation_price=deviated_price_nash, grid_size=grid_size 
-                            )
-                            st.session_state.nash_deviation_output_data = {
-                                "firm": firm_to_check, "type": "Price", "value": deviated_price_nash,
-                                "profit": profit_with_deviation, "change": profit_with_deviation - current_profit_firm
-                            }
-                    
-                    elif deviation_type_choice == "Location (Interactive Map)":
-                        st.write("Click on the map to select a new location for the firm.")
-                        
-                        # --- Drawable Canvas for Location Selection ---
-                        # Define canvas size (can be adjusted)
-                        canvas_width = 400
-                        canvas_height = int(canvas_width * (model.market_shape[1] / model.market_shape[0])) if model.market_shape[0] > 0 else canvas_width
-
-                        # Create a simple background image of the market with firm locations
-                        fig_map, ax_map = plt.subplots(figsize=(canvas_width/80, canvas_height/80)) # Approx inches
-                        ax_map.set_xlim(0, model.market_shape[0])
-                        ax_map.set_ylim(0, model.market_shape[1])
-                        ax_map.set_xticks([])
-                        ax_map.set_yticks([])
-                        ax_map.set_aspect('equal', adjustable='box')
-                        
-                        # Plot other firms
-                        for i in range(model.n_firms):
-                            if i != firm_idx_check:
-                                ax_map.scatter(model.locations[i,0], model.locations[i,1], s=50, c='gray', marker='o', label=f"Firm {i+1}")
-                        # Plot current firm being checked
-                        ax_map.scatter(model.locations[firm_idx_check,0], model.locations[firm_idx_check,1], s=70, c='red', marker='X', label=f"{firm_to_check} (Current)")
-                        # ax_map.legend(fontsize='x-small') # Optional legend
-                        
-                        # Convert plot to an image for canvas background
-                        from io import BytesIO
-                        img_data = BytesIO()
-                        fig_map.savefig(img_data, format='png', bbox_inches='tight', pad_inches=0)
-                        img_data.seek(0)
-                        pil_image_original = Image.open(img_data)
-                        plt.close(fig_map) # Close the figure to free memory
-
-                        # Resize the PIL image to the exact canvas dimensions
-                        pil_image_resized = pil_image_original.resize((canvas_width, canvas_height))
-
-                        # Pass the resized PIL image object directly
-                        canvas_result = st_canvas(
-                            fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
-                            stroke_width=0, # No stroke for points
-                            stroke_color="#000000",
-                            background_image=pil_image_resized, # Use the resized PIL image object
-                            update_streamlit=True, # Rerun script on drawing
-                            height=canvas_height,
-                            width=canvas_width,
-                            drawing_mode="point", # Allow placing points
-                            point_display_radius=5,
-                            key="nash_location_canvas",
-                        )
-
-                        if canvas_result.json_data is not None and canvas_result.json_data["objects"]:
-                            # Get the last drawn point
-                            last_point = canvas_result.json_data["objects"][-1]
-                            # Canvas coordinates are in pixels, need to scale to market coordinates
-                            # last_point["left"] is x, last_point["top"] is y from top-left
-                            clicked_x_canvas = last_point["left"]
-                            clicked_y_canvas = last_point["top"]
-
-                            # Scale to market coordinates
-                            # Assuming canvas (0,0) is top-left and market (0,0) is bottom-left
-                            market_x = (clicked_x_canvas / canvas_width) * model.market_shape[0]
-                            market_y = ((canvas_height - clicked_y_canvas) / canvas_height) * model.market_shape[1] # Invert Y
-                            
-                            deviated_location_nash = np.array([market_x, market_y])
-                            # Clip to market bounds just in case
+                            value_description = f"to price {deviated_price_nash:.2f}"
+                        elif deviation_type_choice == "Location X":
+                            deviated_location_nash = original_location.copy()
+                            deviated_location_nash[0] += dev_amount
                             deviated_location_nash[0] = np.clip(deviated_location_nash[0], 0, model.market_shape[0])
+                            value_description = f"X-coordinate to {deviated_location_nash[0]:.2f} (Y: {deviated_location_nash[1]:.2f})"
+                        elif deviation_type_choice == "Location Y":
+                            deviated_location_nash = original_location.copy()
+                            deviated_location_nash[1] += dev_amount
                             deviated_location_nash[1] = np.clip(deviated_location_nash[1], 0, model.market_shape[1])
-
-                            st.write(f"Selected new location: ({deviated_location_nash[0]:.2f}, {deviated_location_nash[1]:.2f})")
-
-                            if st.button("Check Profit with Selected Location", key="nash_check_loc_button"):
-                                profit_with_deviation = model.calculate_firm_profit_for_deviation(
-                                    firm_idx_check, deviation_location=deviated_location_nash, grid_size=grid_size
-                                )
-                                st.session_state.nash_deviation_output_data = {
-                                    "firm": firm_to_check, "type": "Location", "value": tuple(deviated_location_nash),
-                                    "profit": profit_with_deviation, "change": profit_with_deviation - current_profit_firm
-                                }
+                            value_description = f"Y-coordinate to {deviated_location_nash[1]:.2f} (X: {deviated_location_nash[0]:.2f})"
+                        
+                        profit_with_deviation = model.calculate_firm_profit_for_deviation(
+                            firm_idx_check, 
+                            deviation_price=deviated_price_nash,
+                            deviation_location=deviated_location_nash,
+                            grid_size=grid_size 
+                        )
+                        st.session_state.nash_deviation_output_data = {
+                            "firm": firm_to_check, 
+                            "type": deviation_type_choice, 
+                            "value_desc": value_description,
+                            "profit": profit_with_deviation, 
+                            "change": profit_with_deviation - current_profit_firm
+                        }
                     
                     # Display Nash deviation results if they exist in session state
                     if st.session_state.nash_deviation_output_data:
                         res = st.session_state.nash_deviation_output_data
-                        val_str = f"({res['value'][0]:.2f}, {res['value'][1]:.2f})" if res['type'] == "Location" else f"{res['value']:.2f}"
-                        st.write(f"Profit if {res['firm']} deviates in {res['type']} to {val_str}: **{res['profit']:.4f}**")
+                        st.write(f"Profit if {res['firm']} deviates by changing {res['type']} {res['value_desc']}: **{res['profit']:.4f}**")
                         st.write(f"Change in profit: {res['change']:+.4f}")
-                        if res['change'] > 1e-5:
+                        if res['change'] > 1e-5: # Allow for small numerical noise
                             st.warning("Firm could potentially increase profit by deviating.")
                         else:
                             st.success("Firm does not appear to increase profit by this deviation.")
