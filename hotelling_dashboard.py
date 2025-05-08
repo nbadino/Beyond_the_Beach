@@ -153,27 +153,27 @@ def main():
 
             # Visualizations
             with st.expander("Market Visualization", expanded=True):
-                    viz_col1, viz_col2 = st.columns(2)
-                    
-                    with viz_col1:
-                        st.write("##### Market Segmentation")
-                        # Use a potentially higher grid_size for visualization if desired
-                        # viz_grid_size is now defined at the top of the tab
-                        fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=viz_grid_size)
-                        st.pyplot(fig_seg)
-                        plt.clf() 
-                    
-                    with viz_col2:
-                        st.write("##### Population Density")
-                        fig_den = model.visualize(show_segmentation=False, show_density=True, grid_size=viz_grid_size)
-                        st.pyplot(fig_den)
-                        plt.clf() 
+                viz_col1, viz_col2 = st.columns(2)
                 
-                # Convergence plots
-                with st.expander("Convergence Metrics", expanded=True):
-                    fig_conv = model.plot_convergence()
-                    st.pyplot(fig_conv)
+                with viz_col1:
+                    st.write("##### Market Segmentation")
+                    # Use a potentially higher grid_size for visualization if desired
+                    # viz_grid_size is now defined at the top of the tab
+                    fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=viz_grid_size)
+                    st.pyplot(fig_seg)
                     plt.clf() 
+                
+                with viz_col2:
+                    st.write("##### Population Density")
+                    fig_den = model.visualize(show_segmentation=False, show_density=True, grid_size=viz_grid_size)
+                    st.pyplot(fig_den)
+                    plt.clf() 
+            
+            # Convergence plots
+            with st.expander("Convergence Metrics", expanded=True):
+                fig_conv = model.plot_convergence()
+                st.pyplot(fig_conv)
+                plt.clf() 
 
             with tab_detailed_props:
                 st.header("Detailed Equilibrium Properties")
@@ -387,8 +387,6 @@ def main():
                         try:
                             with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
                                 for val in parameter_values:
-                                    current_params = {
-                                        "n_firms": n_firms, "market_shape": market_shape,
                                     # Access the main simulation model from session_state for base parameters
                                     s_model = st.session_state.model
                                     current_params = {
