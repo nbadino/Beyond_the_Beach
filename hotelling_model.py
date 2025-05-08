@@ -58,6 +58,8 @@ class HotellingTwoDimensional:
         self.price_history = []
         self.location_history = []
         self.profit_history = []
+        self.last_run_iterations = 0
+        self.last_run_time = 0
     
     def rho(self, x, y):
         """Population density function based on specified type."""
@@ -200,14 +202,18 @@ class HotellingTwoDimensional:
         verbose (bool): Whether to print progress
         
         Returns:
-        bool: Whether equilibrium was found
+        dict: {'converged': bool, 'iterations': int, 'time_elapsed': float}
         """
         start_time = time.time()
         self.price_history = [self.prices.copy()]
         self.location_history = [self.locations.copy()]
         self.profit_history = [self.total_profit(grid_size)]
         
+        converged_status = False
+        final_iteration = 0
+
         for iteration in range(max_iterations):
+            final_iteration = iteration + 1
             old_prices = self.prices.copy()
             old_locations = self.locations.copy()
             
@@ -216,7 +222,7 @@ class HotellingTwoDimensional:
                 for i in range(self.n_firms):
                     self.update_price(i, grid_size)
                     self.update_location(i, grid_size)
-            else:
+            elif update_method == 'simultaneous':
                 # Simultaneous updates for all firms
                 new_prices = np.zeros_like(self.prices)
                 new_locations = np.zeros_like(self.locations)

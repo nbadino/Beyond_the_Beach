@@ -71,6 +71,8 @@ def main():
     # Simulation controls
     max_iter = st.sidebar.slider("Max Iterations", 10, 200, 50)
     grid_size = st.sidebar.slider("Grid Size (for simulation)", 10, 100, 30, help="Grid size for demand/profit calculation during optimization.")
+    update_method_options = ['sequential', 'simultaneous']
+    update_method = st.sidebar.selectbox("Update Method", update_method_options, index=0, help="Method for updating prices and locations during equilibrium search.")
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("Verification Options")
@@ -95,19 +97,22 @@ def main():
             )
             
             # Run simulation
-            temp_converged_status = temp_model_obj.find_equilibrium( # Use a temporary variable name
+            sim_results = temp_model_obj.find_equilibrium( # Use a temporary variable name
                 max_iterations=max_iter,
                 grid_size=grid_size,
+                update_method=update_method, # Pass the selected update method
                 verbose=False
             )
 
             # Store results in session state
             st.session_state.model = temp_model_obj
-            st.session_state.converged = temp_converged_status
-            if temp_model_obj: # Ensure model object exists
+            st.session_state.converged = sim_results['converged']
+            st.session_state.iterations = sim_results['iterations']
+            st.session_state.time_elapsed = sim_results['time_elapsed']
+            if temp_model_obj and sim_results['converged']: # Ensure model object exists and converged
                  st.session_state.current_profits = temp_model_obj.total_profit(grid_size=grid_size)
             else:
-                 st.session_state.current_profits = None
+                 st.session_state.current_profits = None # Or profits at last non-converged state
             st.session_state.simulation_run_once = True
 
     # Display content if simulation has been run at least once
@@ -116,13 +121,17 @@ def main():
         model = st.session_state.model
         converged = st.session_state.converged
         current_profits = st.session_state.current_profits
+        iterations = st.session_state.iterations
+        time_elapsed = st.session_state.time_elapsed
+
 
         # Create tabs for organizing output
-        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density = st.tabs([
+        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density, tab_dynamics_robustness = st.tabs([
             "📈 Visualizations & Overview", 
             "📊 Detailed Equilibrium Properties", 
             "📝 Theoretical Verification",
-            "🔬 Sensitivity & Density Analysis"
+            "🔬 Sensitivity & Density Analysis",
+            "⚙️ Dynamics & Robustness"
         ])
 
         with tab_viz_overview:
@@ -249,9 +258,9 @@ def main():
                 st.header("Theoretical Verification & Assumptions")
                 st.subheader("Equilibrium Existence")
                 if converged:
-                    st.success("Equilibrium found (simulation converged).")
+                    st.success(f"Equilibrium found in {iterations} iterations ({time_elapsed:.2f}s). Update method: {model.find_equilibrium.__defaults__[2] if update_method is None else update_method}")
                 else:
-                    st.error("Equilibrium not found (simulation did not converge).")
+                    st.error(f"Equilibrium not found after {iterations} iterations ({time_elapsed:.2f}s). Update method: {model.find_equilibrium.__defaults__[2] if update_method is None else update_method}")
 
                 st.subheader("Assumption Verification (based on paper definitions)")
                 
@@ -525,6 +534,136 @@ def main():
                         st.info("Density-Location correlation analysis is available for 'gaussian' or 'multi_gaussian' density types.")
                 else: # Handles case where model is None or not converged from session_state
                     st.info("Run the main simulation successfully to see Density-Location correlation analysis.")
+            
+            with tab_dynamics_robustness:
+                st.header("Competitive Dynamics & Robustness Checks")
+
+                # --- Nash Equilibrium Verification Section ---
+                st.subheader("Nash Equilibrium Verification (Unilateral Deviation)")
+                if converged:
+                    st.write("Verify if any firm has an incentive to unilaterally deviate from the found equilibrium.")
+                    
+                    firm_to_check = st.selectbox(
+                        "Select firm to check for deviation:", 
+                        options=[f"Firm {i+1}" for i in range(model.n_firms)],
+                        key="nash_firm_select"
+                    )
+                    firm_idx_check = int(firm_to_check.split(" ")[1]) - 1
+                    
+                    current_profit_firm = current_profits[firm_idx_check] if current_profits is not None else model.profit(firm_idx_check, grid_size)
+                    st.write(f"**{firm_to_check}'s Current Profit (at equilibrium): {current_profit_firm:.4f}**")
+
+                    deviation_type = st.radio(
+                        "Select deviation type:",
+                        ("Price", "Location X", "Location Y"),
+                        key="nash_deviation_type"
+                    )
+                    
+                    dev_amount = st.number_input("Deviation amount (e.g., +/- 0.01 or 0.1)", value=0.01, step=0.005, format="%.3f", key="nash_dev_amount")
+
+                    if st.button("Check Profit with Deviation", key="nash_check_button"):
+                        deviated_price = None
+                        deviated_location = None
+                        original_price = model.prices[firm_idx_check]
+                        original_location = model.locations[firm_idx_check].copy()
+
+                        if deviation_type == "Price":
+                            deviated_price = original_price + dev_amount
+                            # Ensure price is within bounds [c, max_price]
+                            deviated_price = np.clip(deviated_price, model.c, model.max_price) 
+                        elif deviation_type == "Location X":
+                            deviated_location = original_location.copy()
+                            deviated_location[0] += dev_amount
+                            # Ensure location is within market bounds
+                            deviated_location[0] = np.clip(deviated_location[0], 0, model.market_shape[0])
+                        elif deviation_type == "Location Y":
+                            deviated_location = original_location.copy()
+                            deviated_location[1] += dev_amount
+                            # Ensure location is within market bounds
+                            deviated_location[1] = np.clip(deviated_location[1], 0, model.market_shape[1])
+                        
+                        profit_with_deviation = model.calculate_firm_profit_for_deviation(
+                            firm_idx_check, 
+                            deviation_price=deviated_price,
+                            deviation_location=deviated_location,
+                            grid_size=grid_size 
+                        )
+                        st.write(f"Profit if {firm_to_check} deviates by {dev_amount} in {deviation_type}: **{profit_with_deviation:.4f}**")
+                        profit_change = profit_with_deviation - current_profit_firm
+                        st.write(f"Change in profit: {profit_change:+.4f}")
+                        if profit_change > 1e-5: # Allow for small numerical noise
+                            st.warning("Firm could potentially increase profit by deviating. This might indicate the point is not a strict Nash Equilibrium or tolerance is too loose.")
+                        else:
+                            st.success("Firm does not appear to increase profit by this deviation.")
+                else:
+                    st.info("Run a simulation that converges to an equilibrium to perform Nash Equilibrium verification.")
+
+                st.markdown("---")
+                # --- Grid Resolution Robustness Test ---
+                st.subheader("Grid Resolution Robustness Test")
+                st.write("Test how changing the simulation's grid_size affects key outcomes.")
+                
+                grid_sizes_to_test_str = st.text_input(
+                    "Enter 2-3 grid sizes to test (comma-separated, e.g., 20,30,40):", 
+                    value="20,30,40",
+                    key="grid_robust_input"
+                )
+                
+                if st.button("Run Grid Resolution Test", key="grid_robust_button"):
+                    try:
+                        grid_sizes_list = [int(s.strip()) for s in grid_sizes_to_test_str.split(',') if s.strip()]
+                        if not (2 <= len(grid_sizes_list) <= 4): # Limit to 2-4 for practicality
+                            st.error("Please enter 2 to 4 valid, comma-separated grid sizes.")
+                        else:
+                            results_grid_robustness = []
+                            with st.spinner("Running grid resolution tests..."):
+                                for test_gs in grid_sizes_list:
+                                    if test_gs <= 0:
+                                        st.warning(f"Skipping invalid grid size: {test_gs}")
+                                        continue
+                                    
+                                    # Create a temporary model instance with current sidebar parameters
+                                    # but with the test_gs
+                                    temp_params_for_grid_test = {
+                                        "n_firms": n_firms, "market_shape": market_shape,
+                                        "beta": beta, "eta": eta, "d_type": d_type,
+                                        "rho_type": rho_type, "density_params": density_centers_params,
+                                        "c": model.c, "A": model.A, 
+                                        "max_price": model.max_price, "mu": model.mu
+                                    }
+                                    temp_model_grid_test = HotellingTwoDimensional(**temp_params_for_grid_test)
+                                    
+                                    sim_res_gs = temp_model_grid_test.find_equilibrium(
+                                        max_iterations=max_iter, # Use main sim max_iter
+                                        grid_size=test_gs,       # Use the test grid_size
+                                        update_method=update_method, # Use main sim update_method
+                                        verbose=False
+                                    )
+                                    
+                                    total_profit_val = None
+                                    if sim_res_gs['converged']:
+                                        total_profit_val = np.sum(temp_model_grid_test.total_profit(grid_size=test_gs))
+                                        
+                                    results_grid_robustness.append({
+                                        'Grid Size': test_gs,
+                                        'Converged': sim_res_gs['converged'],
+                                        'Iterations': sim_res_gs['iterations'],
+                                        'Time (s)': f"{sim_res_gs['time_elapsed']:.2f}",
+                                        'Total Profit': f"{total_profit_val:.2f}" if total_profit_val is not None else "N/A"
+                                    })
+                            
+                            if results_grid_robustness:
+                                st.write("### Grid Resolution Test Results:")
+                                st.table(results_grid_robustness)
+                            else:
+                                st.info("No valid grid sizes were tested.")
+                                
+                    except ValueError:
+                        st.error("Invalid input for grid sizes. Please use comma-separated numbers (e.g., 20,30,40).")
+                    except Exception as e_grid:
+                        st.error(f"An error occurred during grid resolution test: {str(e_grid)}")
+                        st.exception(e_grid)
+
     else:
         st.info("Click 'Run Simulation' in the sidebar to start.")
 
