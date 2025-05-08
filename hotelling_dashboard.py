@@ -353,11 +353,12 @@ def main():
                             'loc_std_dev_x': [],
                             'loc_std_dev_y': []
                         }
-
-                        with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
-                            for val in parameter_values:
-                                current_params = {
-                                    "n_firms": n_firms, "market_shape": market_shape,
+                        all_simulations_converged_in_sweep = True # Flag per tracciare la convergenza generale nello sweep
+                        try:
+                            with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
+                                for val in parameter_values:
+                                    current_params = {
+                                        "n_firms": n_firms, "market_shape": market_shape,
                                     "beta": beta, "eta": eta, "d_type": d_type,
                                     "rho_type": rho_type, "density_params": density_centers_params,
                                     "c": model.c, "A": model.A, "max_price": model.max_price, "mu": model.mu
@@ -390,10 +391,23 @@ def main():
                                     results_sensitivity['loc_std_dev_x'].append(np.nan)
                                     results_sensitivity['loc_std_dev_y'].append(np.nan)
                                     st.warning(f"Simulation did not converge for {param_to_sweep.split(' ')[0]} = {val:.2f}")
-                        
-                        st.success("Sensitivity analysis complete.")
+                                    all_simulations_converged_in_sweep = False
+                            
+                            if not results_sensitivity['param_values']:
+                                st.error("Sensitivity analysis produced no results. All simulations may have failed immediately.")
+                            elif all_simulations_converged_in_sweep:
+                                st.success("Sensitivity analysis complete. All simulations converged.")
+                            else:
+                                st.warning("Sensitivity analysis partially complete. Some simulations did not converge.")
 
-                        if results_sensitivity['param_values']:
+                        except Exception as e:
+                            st.error(f"An error occurred during sensitivity analysis: {str(e)}")
+                            st.exception(e) # Mostra il traceback completo
+                            results_sensitivity = {'param_values': []} # Resetta per evitare errori di plotting successivi
+
+                        # Controlla se ci sono dati validi da plottare (almeno un valore non NaN)
+                        if results_sensitivity['param_values'] and \
+                           any(not np.isnan(p) for p in results_sensitivity.get('avg_prices', [])):
                             param_name_label = param_to_sweep.split(' ')[0] # e.g. "beta" or "eta"
                             
                             fig_sens, axs_sens = plt.subplots(2, 2, figsize=(12, 10))
