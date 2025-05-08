@@ -35,38 +35,91 @@ def main():
     density_centers_params = None # Initialize
     if rho_type == 'multi_gaussian':
         st.sidebar.subheader("Multi-Gaussian Density Parameters")
-        # Ensure market_shape is defined before this widget if its limits depend on it.
-        # market_shape is defined above, so it's fine.
-        num_foci = st.sidebar.number_input("Number of Gaussian Foci", 
-                                           min_value=1, max_value=5, value=2, step=1, key="num_foci")
         
+        num_foci = st.sidebar.number_input("Number of Gaussian Foci", 
+                                           min_value=1, max_value=5, value=2, step=1, key="num_foci_input")
+
+        # Initialize session state for randomized foci parameters
+        if 'generated_foci_params' not in st.session_state:
+            st.session_state.generated_foci_params = {} # Store by index
+        if 'use_generated_foci_once' not in st.session_state:
+            st.session_state.use_generated_foci_once = False
+
+        def clear_generated_foci_flag_and_param(focus_idx_changed, param_type):
+            # When user manually changes a field, we stop overriding for that specific field
+            # and also generally stop using the "generated" set for subsequent reruns unless "Randomize" is pressed again.
+            st.session_state.use_generated_foci_once = False
+            if focus_idx_changed in st.session_state.generated_foci_params:
+                if param_type in st.session_state.generated_foci_params[focus_idx_changed]:
+                    # Mark this specific param as "manually overridden" by removing it from generated
+                    del st.session_state.generated_foci_params[focus_idx_changed][param_type]
+
+
+        if st.sidebar.button("Randomize Foci", key="randomize_foci_button"):
+            st.session_state.generated_foci_params = {} # Clear previous randomizations
+            for i_rand in range(int(num_foci)):
+                rand_cx = np.random.uniform(0, market_shape[0])
+                rand_cy = np.random.uniform(0, market_shape[1])
+                rand_strength = np.random.uniform(0.5, 3.0)
+                # Ensure sigma is not too large relative to market, but also not too small
+                rand_sigma = np.random.uniform(0.1, max(market_shape[0], market_shape[1]) / 3.0) 
+                st.session_state.generated_foci_params[i_rand] = {
+                    'center_x': rand_cx, 'center_y': rand_cy,
+                    'strength': rand_strength, 'sigma': rand_sigma
+                }
+            st.session_state.use_generated_foci_once = True
+            # Streamlit automatically reruns, new values will be picked up by widgets
+
         density_centers_params = []
         for i in range(int(num_foci)):
             st.sidebar.markdown(f"**Focus {i+1}**")
-            foci_col1, foci_col2 = st.sidebar.columns(2)
-            # Default center positions are staggered for better initial visualization
-            default_center_x = market_shape[0] * ( (i+1) / (int(num_foci)+1) )
-            default_center_y = market_shape[1] * ( (i+1) / (int(num_foci)+1) )
+            
+            # Determine initial values for widgets
+            # Default values (staggered)
+            default_cx = market_shape[0] * ((i + 1) / (int(num_foci) + 1))
+            default_cy = market_shape[1] * ((i + 1) / (int(num_foci) + 1))
+            default_strength = 1.0
+            default_sigma = 0.3
 
+            # Override with generated values if flag is set and params exist for this focus index
+            val_cx = st.session_state.generated_foci_params.get(i, {}).get('center_x', default_cx)
+            val_cy = st.session_state.generated_foci_params.get(i, {}).get('center_y', default_cy)
+            val_strength = st.session_state.generated_foci_params.get(i, {}).get('strength', default_strength)
+            val_sigma = st.session_state.generated_foci_params.get(i, {}).get('sigma', default_sigma)
+
+            foci_col1, foci_col2 = st.sidebar.columns(2)
             center_x = foci_col1.number_input(f"Center X ({i+1})", 
                                               min_value=0.0, max_value=float(market_shape[0]), 
-                                              value=float(default_center_x), 
-                                              step=0.1, key=f"mg_cx_{i}")
+                                              value=float(val_cx), 
+                                              step=0.1, key=f"mg_cx_{i}",
+                                              on_change=clear_generated_foci_flag_and_param, args=(i, "center_x"))
             center_y = foci_col2.number_input(f"Center Y ({i+1})", 
                                               min_value=0.0, max_value=float(market_shape[1]), 
-                                              value=float(default_center_y), 
-                                              step=0.1, key=f"mg_cy_{i}")
+                                              value=float(val_cy), 
+                                              step=0.1, key=f"mg_cy_{i}",
+                                              on_change=clear_generated_foci_flag_and_param, args=(i, "center_y"))
             
             strength_col, sigma_col = st.sidebar.columns(2)
             strength = strength_col.number_input(f"Strength ({i+1})", 
                                                  min_value=0.1, max_value=10.0, 
-                                                 value=1.0, step=0.1, key=f"mg_str_{i}")
-            # Default sigma related to np.sqrt(0.1) which is approx 0.316
+                                                 value=float(val_strength), 
+                                                 step=0.1, key=f"mg_str_{i}",
+                                                 on_change=clear_generated_foci_flag_and_param, args=(i, "strength"))
             sigma = sigma_col.number_input(f"Sigma (spread) ({i+1})", 
                                            min_value=0.01, max_value=float(max(market_shape)/2), 
-                                           value=0.3, step=0.01, key=f"mg_sig_{i}")
+                                           value=float(val_sigma), 
+                                           step=0.01, key=f"mg_sig_{i}",
+                                           on_change=clear_generated_foci_flag_and_param, args=(i, "sigma"))
             
             density_centers_params.append({'center': (center_x, center_y), 'strength': strength, 'sigma': sigma})
+        
+        # After all focus widgets are created for this run, reset the general flag
+        # This ensures that if "Randomize" was pressed, values are used for THIS run,
+        # but subsequent reruns (e.g. due to other widget changes) won't re-apply them
+        # unless "Randomize" is pressed again. Manual changes are preserved by the widget's state.
+        if st.session_state.use_generated_foci_once:
+            st.session_state.use_generated_foci_once = False
+
 
     # Simulation controls
     max_iter = st.sidebar.slider("Max Iterations", 10, 200, 50)
