@@ -94,10 +94,11 @@ def main():
             )
             
             # Create tabs for organizing output
-            tab_viz_overview, tab_detailed_props, tab_theory = st.tabs([
+            tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density = st.tabs([
                 "📈 Visualizations & Overview", 
                 "📊 Detailed Equilibrium Properties", 
-                "📝 Theoretical Verification"
+                "📝 Theoretical Verification",
+                "🔬 Sensitivity & Density Analysis"
             ])
 
             with tab_viz_overview:
