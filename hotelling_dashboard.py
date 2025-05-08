@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
 def main():
+    st.set_page_config(layout="wide") # Use full width
     st.title("2D Hotelling Model Simulation Dashboard")
     
     # ===== Sidebar Controls =====
@@ -116,9 +117,15 @@ def main():
             
             # Convergence plots
             with st.expander("Convergence Metrics", expanded=True):
-                model.plot_convergence()
-                st.pyplot(plt.gcf())
-                plt.clf() # Clear figure after displaying
+                fig_conv = model.plot_convergence()
+                st.pyplot(fig_conv)
+                # plt.clf() might not be necessary if fig_conv is a new figure each time
+                # and not relying on plt.gcf(). Let's keep it for now to be safe,
+                # or remove if plot_convergence always creates a new fig.
+                # Given plot_convergence now returns fig, it's safer to clear the specific figure
+                # or rely on Streamlit to handle it. For now, plt.clf() is a broad clear.
+                # If model.plot_convergence() always returns a new fig, plt.clf() is fine.
+                plt.clf() 
 
 if __name__ == "__main__":
     main()

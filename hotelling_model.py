@@ -512,13 +512,16 @@ class HotellingTwoDimensional:
             ax3.set_ylabel('y')
         
         plt.tight_layout()
-        plt.show()
+        return fig
     
     def plot_convergence(self):
         """Plot the convergence history of prices, locations, and profits."""
         if not self.price_history or not self.location_history or not self.profit_history:
             print("No history available. Run find_equilibrium() first.")
-            return
+            # Return an empty figure or None if no history
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, "No history available.", ha='center', va='center')
+            return fig
         
         fig, axs = plt.subplots(3, 1, figsize=(10, 12))
         
@@ -556,7 +559,9 @@ class HotellingTwoDimensional:
         ax3.set_xlabel('Iteration')
         ax3.set_ylabel('Profit')
         ax3.legend()
-
+        
+        plt.tight_layout()
+        return fig
 
 # ========= SIMULATION TEST FUNCTIONS =========
 
