@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image # Import Pillow Image
+import base64 # Import base64
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
 def main():
@@ -660,14 +661,20 @@ def main():
                         img_data = BytesIO()
                         fig_map.savefig(img_data, format='png', bbox_inches='tight', pad_inches=0)
                         img_data.seek(0)
-                        pil_image = Image.open(img_data) # Convert BytesIO to PIL Image
+                        pil_image = Image.open(img_data) 
                         plt.close(fig_map) # Close the figure to free memory
+
+                        # Convert PIL image to base64 data URL
+                        buffered = BytesIO()
+                        pil_image.save(buffered, format="PNG")
+                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                        background_image_url = f"data:image/png;base64,{img_str}"
 
                         canvas_result = st_canvas(
                             fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
                             stroke_width=0, # No stroke for points
                             stroke_color="#000000",
-                            background_image=pil_image, # Use the PIL image as background
+                            background_image=background_image_url, # Use base64 data URL
                             update_streamlit=True, # Rerun script on drawing
                             height=canvas_height,
                             width=canvas_width,
