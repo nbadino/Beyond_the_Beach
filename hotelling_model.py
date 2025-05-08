@@ -15,7 +15,8 @@ class HotellingTwoDimensional:
                  max_price=10.0,
                  mu=1.0,
                  d_type='euclidean',
-                 rho_type='uniform'):
+                 rho_type='uniform',
+                 density_params=None):
         """
         Initialize the 2D Hotelling model with parametrized functions.
         
@@ -29,7 +30,13 @@ class HotellingTwoDimensional:
         max_price (float): Upper bound for prices
         mu (float): Strong convexity parameter for transport cost
         d_type (str): Type of distance function ('euclidean', 'manhattan', 'quadratic')
-        rho_type (str): Type of density function ('uniform', 'linear', 'gaussian', 'sine')
+        rho_type (str): Type of density function ('uniform', 'linear', 'gaussian', 'sine', 'multi_gaussian')
+        density_params (list): Optional. For 'multi_gaussian', a list of dicts,
+                               where each dict defines a Gaussian focus:
+                               [{'center': (cx, cy), 'strength': s, 'sigma': sig}, ...]
+                               `center` is (x,y) coordinates.
+                               `strength` is the amplitude of the Gaussian.
+                               `sigma` is the standard deviation (spread).
         """
         self.n_firms = n_firms
         self.market_shape = market_shape
@@ -41,6 +48,7 @@ class HotellingTwoDimensional:
         self.mu = mu
         self.d_type = d_type
         self.rho_type = rho_type
+        self.density_params = density_params
         
         # Initialize firm locations and prices
         self.locations = np.random.uniform(0, 1, (n_firms, 2)) * market_shape
@@ -65,6 +73,20 @@ class HotellingTwoDimensional:
         elif self.rho_type == 'sine':
             # Sinusoidal pattern (as used in the paper)
             return 1 + np.sin(np.pi * x) * np.sin(np.pi * y)
+        elif self.rho_type == 'multi_gaussian':
+            if not (self.density_params and isinstance(self.density_params, list) and len(self.density_params) > 0):
+                return 1.0 # Fallback to uniform if no valid params for multi_gaussian
+
+            total_density = 0.0
+            for params in self.density_params:
+                center_x, center_y = params.get('center', (self.market_shape[0]/2, self.market_shape[1]/2))
+                strength = params.get('strength', 1.0)
+                sigma = params.get('sigma', np.sqrt(0.1)) # Default sigma such that 2*sigma^2 = 0.2 (consistent with 'gaussian')
+                
+                if strength > 0 and sigma > 0: # Ensure valid parameters
+                    total_density += strength * np.exp(-((x-center_x)**2 + (y-center_y)**2) / (2 * sigma**2))
+            
+            return total_density
         else:
             return 1.0  # Default uniform
     

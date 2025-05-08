@@ -22,8 +22,44 @@ def main():
     d_type = st.sidebar.selectbox("Distance Type", 
                                  ["euclidean", "manhattan", "quadratic"])
     rho_type = st.sidebar.selectbox("Density Type",
-                                   ["uniform", "linear", "gaussian", "sine"])
+                                   ["uniform", "linear", "gaussian", "sine", "multi_gaussian"])
     
+    density_centers_params = None # Initialize
+    if rho_type == 'multi_gaussian':
+        st.sidebar.subheader("Multi-Gaussian Density Parameters")
+        # Ensure market_shape is defined before this widget if its limits depend on it.
+        # market_shape is defined above, so it's fine.
+        num_foci = st.sidebar.number_input("Number of Gaussian Foci", 
+                                           min_value=1, max_value=5, value=2, step=1, key="num_foci")
+        
+        density_centers_params = []
+        for i in range(int(num_foci)):
+            st.sidebar.markdown(f"**Focus {i+1}**")
+            foci_col1, foci_col2 = st.sidebar.columns(2)
+            # Default center positions are staggered for better initial visualization
+            default_center_x = market_shape[0] * ( (i+1) / (int(num_foci)+1) )
+            default_center_y = market_shape[1] * ( (i+1) / (int(num_foci)+1) )
+
+            center_x = foci_col1.number_input(f"Center X ({i+1})", 
+                                              min_value=0.0, max_value=float(market_shape[0]), 
+                                              value=float(default_center_x), 
+                                              step=0.1, key=f"mg_cx_{i}")
+            center_y = foci_col2.number_input(f"Center Y ({i+1})", 
+                                              min_value=0.0, max_value=float(market_shape[1]), 
+                                              value=float(default_center_y), 
+                                              step=0.1, key=f"mg_cy_{i}")
+            
+            strength_col, sigma_col = st.sidebar.columns(2)
+            strength = strength_col.number_input(f"Strength ({i+1})", 
+                                                 min_value=0.1, max_value=10.0, 
+                                                 value=1.0, step=0.1, key=f"mg_str_{i}")
+            # Default sigma related to np.sqrt(0.1) which is approx 0.316
+            sigma = sigma_col.number_input(f"Sigma (spread) ({i+1})", 
+                                           min_value=0.01, max_value=float(max(market_shape)/2), 
+                                           value=0.3, step=0.01, key=f"mg_sig_{i}")
+            
+            density_centers_params.append({'center': (center_x, center_y), 'strength': strength, 'sigma': sigma})
+
     # Simulation controls
     max_iter = st.sidebar.slider("Max Iterations", 10, 200, 50)
     grid_size = st.sidebar.slider("Grid Size", 10, 100, 30)
@@ -38,7 +74,8 @@ def main():
                 beta=beta,
                 eta=eta,
                 d_type=d_type,
-                rho_type=rho_type
+                rho_type=rho_type,
+                density_params=density_centers_params
             )
             
             # Run simulation
