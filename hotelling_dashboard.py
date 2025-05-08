@@ -324,6 +324,156 @@ def main():
                     if uniqueness_results.get("reason"):
                          st.warning(f"Note: {uniqueness_results['reason']}")
 
+            with tab_sensitivity_density:
+                st.header("Sensitivity Analysis & Population Density Effects")
+
+                # --- Sensitivity Analysis Section ---
+                st.subheader("Parametric Sensitivity Analysis (Simplified Comparative Statics)")
+                
+                param_to_sweep = st.selectbox(
+                    "Select parameter to vary:",
+                    options=['beta (price sensitivity)', 'eta (elasticity)'],
+                    key="sensitivity_param_select"
+                )
+
+                sweep_col1, sweep_col2, sweep_col3 = st.columns(3)
+                min_val = sweep_col1.number_input("Minimum value", value=0.1, step=0.1, key="sweep_min")
+                max_val = sweep_col2.number_input("Maximum value", value=1.0, step=0.1, key="sweep_max")
+                num_steps = sweep_col3.number_input("Number of steps", min_value=2, max_value=20, value=5, step=1, key="sweep_steps")
+
+                if st.button("Run Sensitivity Analysis", key="run_sensitivity_analysis_button"):
+                    if min_val >= max_val:
+                        st.error("Minimum value must be less than maximum value.")
+                    else:
+                        parameter_values = np.linspace(min_val, max_val, int(num_steps))
+                        results_sensitivity = {
+                            'param_values': [],
+                            'avg_prices': [],
+                            'avg_profits': [],
+                            'loc_std_dev_x': [],
+                            'loc_std_dev_y': []
+                        }
+
+                        with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
+                            for val in parameter_values:
+                                current_params = {
+                                    "n_firms": n_firms, "market_shape": market_shape,
+                                    "beta": beta, "eta": eta, "d_type": d_type,
+                                    "rho_type": rho_type, "density_params": density_centers_params,
+                                    "c": model.c, "A": model.A, "max_price": model.max_price, "mu": model.mu
+                                }
+                                
+                                if param_to_sweep == 'beta (price sensitivity)':
+                                    current_params["beta"] = val
+                                elif param_to_sweep == 'eta (elasticity)':
+                                    current_params["eta"] = val
+                                
+                                temp_model = HotellingTwoDimensional(**current_params)
+                                converged_sensitivity = temp_model.find_equilibrium(
+                                    max_iterations=max_iter, # Use main sim max_iter
+                                    grid_size=grid_size,     # Use main sim grid_size
+                                    verbose=False
+                                )
+
+                                if converged_sensitivity:
+                                    results_sensitivity['param_values'].append(val)
+                                    results_sensitivity['avg_prices'].append(np.mean(temp_model.prices))
+                                    current_total_profits = temp_model.total_profit(grid_size=grid_size)
+                                    results_sensitivity['avg_profits'].append(np.mean(current_total_profits))
+                                    results_sensitivity['loc_std_dev_x'].append(np.std(temp_model.locations[:, 0]))
+                                    results_sensitivity['loc_std_dev_y'].append(np.std(temp_model.locations[:, 1]))
+                                else:
+                                    # Handle non-convergence if necessary, e.g., by appending NaN or skipping
+                                    results_sensitivity['param_values'].append(val)
+                                    results_sensitivity['avg_prices'].append(np.nan)
+                                    results_sensitivity['avg_profits'].append(np.nan)
+                                    results_sensitivity['loc_std_dev_x'].append(np.nan)
+                                    results_sensitivity['loc_std_dev_y'].append(np.nan)
+                                    st.warning(f"Simulation did not converge for {param_to_sweep.split(' ')[0]} = {val:.2f}")
+                        
+                        st.success("Sensitivity analysis complete.")
+
+                        if results_sensitivity['param_values']:
+                            param_name_label = param_to_sweep.split(' ')[0] # e.g. "beta" or "eta"
+                            
+                            fig_sens, axs_sens = plt.subplots(2, 2, figsize=(12, 10))
+                            fig_sens.suptitle(f"Sensitivity Analysis: Impact of {param_name_label}", fontsize=16)
+
+                            axs_sens[0,0].plot(results_sensitivity['param_values'], results_sensitivity['avg_prices'], marker='o')
+                            axs_sens[0,0].set_xlabel(param_name_label)
+                            axs_sens[0,0].set_ylabel("Average Price")
+                            axs_sens[0,0].set_title("Average Price")
+
+                            axs_sens[0,1].plot(results_sensitivity['param_values'], results_sensitivity['avg_profits'], marker='o')
+                            axs_sens[0,1].set_xlabel(param_name_label)
+                            axs_sens[0,1].set_ylabel("Average Profit per Firm")
+                            axs_sens[0,1].set_title("Average Profit")
+
+                            axs_sens[1,0].plot(results_sensitivity['param_values'], results_sensitivity['loc_std_dev_x'], marker='o')
+                            axs_sens[1,0].set_xlabel(param_name_label)
+                            axs_sens[1,0].set_ylabel("Std Dev of X-Locations")
+                            axs_sens[1,0].set_title("Location Dispersion (X)")
+                            
+                            axs_sens[1,1].plot(results_sensitivity['param_values'], results_sensitivity['loc_std_dev_y'], marker='o')
+                            axs_sens[1,1].set_xlabel(param_name_label)
+                            axs_sens[1,1].set_ylabel("Std Dev of Y-Locations")
+                            axs_sens[1,1].set_title("Location Dispersion (Y)")
+
+                            plt.tight_layout(rect=[0, 0, 1, 0.96]) # Adjust layout to make space for suptitle
+                            st.pyplot(fig_sens)
+                            plt.clf()
+                        else:
+                            st.info("No data to plot for sensitivity analysis (all simulations might have failed to converge).")
+
+                st.markdown("---")
+                # --- Population Density Correlation Section ---
+                st.subheader("Population Density-Location Correlation")
+                if 'model' in locals() and converged: # Check if main simulation has run and converged
+                    if model.rho_type == 'gaussian':
+                        st.markdown("**Gaussian Density:**")
+                        center_x, center_y = model.market_shape[0]/2, model.market_shape[1]/2
+                        gaussian_center = np.array([center_x, center_y])
+                        distances_to_center = [np.linalg.norm(loc - gaussian_center) for loc in model.locations]
+                        avg_dist_to_center = np.mean(distances_to_center)
+                        st.metric("Avg. Firm Distance to Gaussian Center", f"{avg_dist_to_center:.3f}")
+                        
+                        # Display distances per firm
+                        for i, dist in enumerate(distances_to_center):
+                             st.write(f"Firm {i+1} distance to center: {dist:.3f}")
+
+                    elif model.rho_type == 'multi_gaussian' and model.density_params:
+                        st.markdown("**Multi-Gaussian Density:**")
+                        if not model.density_params:
+                            st.info("No multi-gaussian foci defined.")
+                        else:
+                            avg_min_distances = []
+                            details_per_firm = []
+                            foci_centers = np.array([params['center'] for params in model.density_params])
+
+                            for i, firm_loc in enumerate(model.locations):
+                                distances_to_foci = [np.linalg.norm(firm_loc - focus_center) for focus_center in foci_centers]
+                                min_dist = np.min(distances_to_foci)
+                                closest_focus_idx = np.argmin(distances_to_foci)
+                                avg_min_distances.append(min_dist)
+                                details_per_firm.append(
+                                    f"Firm {i+1}: Closest to Focus {closest_focus_idx+1} "
+                                    f"({model.density_params[closest_focus_idx]['center'][0]:.2f}, "
+                                    f"{model.density_params[closest_focus_idx]['center'][1]:.2f}) "
+                                    f"at distance {min_dist:.3f}"
+                                )
+                            
+                            if avg_min_distances:
+                                st.metric("Avg. Firm Distance to Nearest Gaussian Focus", f"{np.mean(avg_min_distances):.3f}")
+                                with st.expander("Details per firm (closest focus and distance):"):
+                                    for detail in details_per_firm:
+                                        st.write(detail)
+                            else:
+                                st.info("Could not calculate distances to foci.")
+                    else:
+                        st.info("Density-Location correlation analysis is available for 'gaussian' or 'multi_gaussian' density types after running the main simulation.")
+                else:
+                    st.info("Run the main simulation first to see Density-Location correlation analysis.")
+
 
 if __name__ == "__main__":
     main()
