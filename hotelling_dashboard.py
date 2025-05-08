@@ -477,11 +477,14 @@ def main():
                 st.markdown("---")
                 # --- Population Density Correlation Section ---
                 st.subheader("Population Density-Location Correlation")
-                if 'model' in locals() and converged: # Check if main simulation has run and converged
+                # This section uses 'model' and 'converged' which are now retrieved from session_state
+                # at the beginning of the 'if st.session_state.simulation_run_once:' block
+                if model and converged: # Check if main simulation has run and converged
                     if model.rho_type == 'gaussian':
                         st.markdown("**Gaussian Density:**")
                         center_x, center_y = model.market_shape[0]/2, model.market_shape[1]/2
                         gaussian_center = np.array([center_x, center_y])
+                        # Corrected distance calculation: loc - gaussian_center
                         distances_to_center = [np.linalg.norm(loc - gaussian_center) for loc in model.locations]
                         avg_dist_to_center = np.mean(distances_to_center)
                         st.metric("Avg. Firm Distance to Gaussian Center", f"{avg_dist_to_center:.3f}")
@@ -490,16 +493,18 @@ def main():
                         for i, dist in enumerate(distances_to_center):
                              st.write(f"Firm {i+1} distance to center: {dist:.3f}")
 
-                    elif model.rho_type == 'multi_gaussian' and model.density_params:
+                    elif model.rho_type == 'multi_gaussian' and model.density_params: # model.density_params comes from the main model
                         st.markdown("**Multi-Gaussian Density:**")
-                        if not model.density_params:
-                            st.info("No multi-gaussian foci defined.")
+                        # model.density_params are the ones used in the main simulation
+                        if not model.density_params: 
+                            st.info("No multi-gaussian foci defined for the main simulation.")
                         else:
                             avg_min_distances = []
                             details_per_firm = []
-                            foci_centers = np.array([params['center'] for params in model.density_params])
+                            # foci_centers are from the main simulation's model
+                            foci_centers = np.array([params['center'] for params in model.density_params]) 
 
-                            for i, firm_loc in enumerate(model.locations):
+                            for i, firm_loc in enumerate(model.locations): # model.locations from main simulation
                                 distances_to_foci = [np.linalg.norm(firm_loc - focus_center) for focus_center in foci_centers]
                                 min_dist = np.min(distances_to_foci)
                                 closest_focus_idx = np.argmin(distances_to_foci)
@@ -519,10 +524,11 @@ def main():
                             else:
                                 st.info("Could not calculate distances to foci.")
                     else:
-                        st.info("Density-Location correlation analysis is available for 'gaussian' or 'multi_gaussian' density types after running the main simulation.")
-                else:
-                    st.info("Run the main simulation first to see Density-Location correlation analysis.")
-
+                        st.info("Density-Location correlation analysis is available for 'gaussian' or 'multi_gaussian' density types.")
+                else: # Handles case where model is None or not converged from session_state
+                    st.info("Run the main simulation successfully to see Density-Location correlation analysis.")
+    else:
+        st.info("Click 'Run Simulation' in the sidebar to start.")
 
 if __name__ == "__main__":
     main()
