@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from streamlit_drawable_canvas import st_canvas
+from PIL import Image # Import Pillow Image
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
 def main():
@@ -659,13 +660,14 @@ def main():
                         img_data = BytesIO()
                         fig_map.savefig(img_data, format='png', bbox_inches='tight', pad_inches=0)
                         img_data.seek(0)
+                        pil_image = Image.open(img_data) # Convert BytesIO to PIL Image
                         plt.close(fig_map) # Close the figure to free memory
 
                         canvas_result = st_canvas(
                             fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
                             stroke_width=0, # No stroke for points
                             stroke_color="#000000",
-                            background_image=img_data, # Use the plot as background
+                            background_image=pil_image, # Use the PIL image as background
                             update_streamlit=True, # Rerun script on drawing
                             height=canvas_height,
                             width=canvas_width,
