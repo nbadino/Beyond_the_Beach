@@ -93,49 +93,126 @@ def main():
                 verbose=False
             )
             
-            # Display results
-            with st.expander("Simulation Results", expanded=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("### Final Locations")
-                    for i, loc in enumerate(model.locations):
-                        st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
-                        
-                with col2:
-                    st.write("### Final Prices")
-                    for i, price in enumerate(model.prices):
-                        st.write(f"Firm {i+1}: {price:.2f}")
-            
-            # Visualizations
-            with st.expander("Market Visualization", expanded=True):
-                viz_col1, viz_col2 = st.columns(2)
+            # Create tabs for organizing output
+            tab_viz_overview, tab_detailed_props, tab_theory = st.tabs([
+                "📈 Visualizations & Overview", 
+                "📊 Detailed Equilibrium Properties", 
+                "📝 Theoretical Verification"
+            ])
+
+            with tab_viz_overview:
+                st.header("Simulation Overview & Visualizations")
+                # Display results (summary)
+                with st.expander("Key Simulation Results", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write("##### Final Locations")
+                        for i, loc in enumerate(model.locations):
+                            st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
+                            
+                    with col2:
+                        st.write("##### Final Prices")
+                        for i, price in enumerate(model.prices):
+                            st.write(f"Firm {i+1}: {price:.2f}")
+                    
+                    with col3:
+                        st.write("##### Final Profits")
+                        current_profits = model.total_profit(grid_size=grid_size)
+                        for i, profit_val in enumerate(current_profits):
+                            st.write(f"Firm {i+1}: {profit_val:.2f}")
+
+                # Visualizations
+                with st.expander("Market Visualization", expanded=True):
+                    viz_col1, viz_col2 = st.columns(2)
+                    
+                    with viz_col1:
+                        st.write("##### Market Segmentation")
+                        # Use a potentially higher grid_size for visualization if desired
+                        viz_grid_size = st.slider("Grid Size for Visualizations", 20, 150, 75, key="viz_grid_slider", help="Finer grid for smoother visuals.")
+                        fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=viz_grid_size)
+                        st.pyplot(fig_seg)
+                        plt.clf() 
+                    
+                    with viz_col2:
+                        st.write("##### Population Density")
+                        fig_den = model.visualize(show_segmentation=False, show_density=True, grid_size=viz_grid_size)
+                        st.pyplot(fig_den)
+                        plt.clf() 
                 
-                with viz_col1:
-                    st.write("#### Market Segmentation")
-                    fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=grid_size) # Pass grid_size
-                    st.pyplot(fig_seg)
-                    plt.clf() # Clear figure after displaying
+                # Convergence plots
+                with st.expander("Convergence Metrics", expanded=True):
+                    fig_conv = model.plot_convergence()
+                    st.pyplot(fig_conv)
+                    plt.clf() 
+
+            with tab_detailed_props:
+                st.header("Detailed Equilibrium Properties")
+
+                # Firm Locations Analysis
+                st.subheader("Firm Locations")
+                locations_data = [{"Firm": f"Firm {i+1}", "X": model.locations[i,0], "Y": model.locations[i,1]} for i in range(model.n_firms)]
+                st.table(locations_data)
+                loc_stats_cols = st.columns(2)
+                loc_stats_cols[0].metric("Avg X-coordinate", f"{np.mean(model.locations[:,0]):.2f}", delta=None)
+                loc_stats_cols[1].metric("Avg Y-coordinate", f"{np.mean(model.locations[:,1]):.2f}", delta=None)
+                loc_stats_cols[0].metric("Std Dev X-coordinate", f"{np.std(model.locations[:,0]):.2f}", delta=None)
+                loc_stats_cols[1].metric("Std Dev Y-coordinate", f"{np.std(model.locations[:,1]):.2f}", delta=None)
+
+                # Firm Prices Analysis
+                st.subheader("Firm Prices")
+                prices_data = [{"Firm": f"Firm {i+1}", "Price": model.prices[i]} for i in range(model.n_firms)]
+                st.table(prices_data)
+                price_stats_cols = st.columns(2)
+                price_stats_cols[0].metric("Average Price", f"{np.mean(model.prices):.2f}")
+                price_stats_cols[1].metric("Price Std Dev (Dispersion)", f"{np.std(model.prices):.2f}")
+
+                # Firm Profits Analysis
+                st.subheader("Firm Profits")
+                profits = model.total_profit(grid_size=grid_size) # Recalculate or use from history if available
+                profits_data = [{"Firm": f"Firm {i+1}", "Profit": profits[i]} for i in range(model.n_firms)]
+                st.table(profits_data)
+                profit_stats_cols = st.columns(3)
+                profit_stats_cols[0].metric("Total Profit (All Firms)", f"{np.sum(profits):.2f}")
+                profit_stats_cols[1].metric("Average Profit per Firm", f"{np.mean(profits):.2f}")
+                profit_stats_cols[2].metric("Profit Std Dev", f"{np.std(profits):.2f}")
+
+                # Market Segmentation Quantification
+                st.subheader("Market Segmentation Analysis (Approximate Shares)")
+                # Use the simulation grid_size for consistency with profit/demand calculations
+                # Or allow a separate grid_size for this analysis if computationally intensive
+                segmentation_grid_size = grid_size # Using simulation grid_size
                 
-                with viz_col2:
-                    st.write("#### Population Density")
-                    fig_den = model.visualize(show_segmentation=False, show_density=True, grid_size=grid_size) # Pass grid_size
-                    st.pyplot(fig_den)
-                    plt.clf() # Clear figure after displaying
-            
-            # Convergence plots
-            with st.expander("Convergence Metrics", expanded=True):
-                fig_conv = model.plot_convergence()
-                st.pyplot(fig_conv)
-                # plt.clf() might not be necessary if fig_conv is a new figure each time
-                # and not relying on plt.gcf(). Let's keep it for now to be safe,
-                # or remove if plot_convergence always creates a new fig.
-                # Given plot_convergence now returns fig, it's safer to clear the specific figure
-                # or rely on Streamlit to handle it. For now, plt.clf() is a broad clear.
-                # If model.plot_convergence() always returns a new fig, plt.clf() is fine.
+                market_x_coords = np.linspace(0, model.market_shape[0], segmentation_grid_size)
+                market_y_coords = np.linspace(0, model.market_shape[1], segmentation_grid_size)
+                X_viz, Y_viz = np.meshgrid(market_x_coords, market_y_coords)
+                Z_segmentation = np.zeros_like(X_viz, dtype=int)
+
+                for r_idx in range(X_viz.shape[0]):
+                    for c_idx in range(X_viz.shape[1]):
+                        consumer_loc = np.array([X_viz[r_idx, c_idx], Y_viz[r_idx, c_idx]])
+                        # Need to temporarily set model's prices and locations if they were changed by uniqueness check
+                        # However, model object here should be the one from the main simulation run
+                        probs = model.choice_prob(consumer_loc) 
+                        Z_segmentation[r_idx, c_idx] = np.argmax(probs)
+                
+                market_shares = np.zeros(model.n_firms)
+                total_cells = Z_segmentation.size
+                if total_cells > 0:
+                    for firm_i in range(model.n_firms):
+                        market_shares[firm_i] = np.sum(Z_segmentation == firm_i) / total_cells * 100 # In percentage
+
+                shares_data = [{"Firm": f"Firm {i+1}", "Market Share (%)": f"{market_shares[i]:.2f}%"} for i in range(model.n_firms)]
+                st.table(shares_data)
+                
+                fig_shares, ax_shares = plt.subplots()
+                ax_shares.pie(market_shares, labels=[f"Firm {i+1}" for i in range(model.n_firms)], autopct='%1.1f%%', startangle=90)
+                ax_shares.axis('equal') # Equal aspect ratio ensures that pie is drawn as a circle.
+                st.pyplot(fig_shares)
                 plt.clf()
-            
-            # Theoretical Verification & Assumptions
-            with st.expander("Theoretical Verification & Assumptions", expanded=True):
+
+
+            with tab_theory:
+                st.header("Theoretical Verification & Assumptions")
                 st.subheader("Equilibrium Existence")
                 if converged:
                     st.success("Equilibrium found (simulation converged).")
