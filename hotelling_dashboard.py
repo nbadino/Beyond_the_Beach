@@ -102,6 +102,8 @@ def main():
 
             with tab_viz_overview:
                 st.header("Simulation Overview & Visualizations")
+                # Use a potentially higher grid_size for visualization if desired
+                viz_grid_size = st.slider("Grid Size for Visualizations", 20, 150, 75, key="viz_grid_slider", help="Finer grid for smoother visuals.")
                 # Display results (summary)
                 with st.expander("Key Simulation Results", expanded=True):
                     col1, col2, col3 = st.columns(3)
@@ -128,7 +130,7 @@ def main():
                     with viz_col1:
                         st.write("##### Market Segmentation")
                         # Use a potentially higher grid_size for visualization if desired
-                        viz_grid_size = st.slider("Grid Size for Visualizations", 20, 150, 75, key="viz_grid_slider", help="Finer grid for smoother visuals.")
+                        # viz_grid_size is now defined at the top of the tab
                         fig_seg = model.visualize(show_segmentation=True, show_density=False, grid_size=viz_grid_size)
                         st.pyplot(fig_seg)
                         plt.clf() 
