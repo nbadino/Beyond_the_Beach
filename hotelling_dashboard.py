@@ -664,17 +664,12 @@ def main():
                         pil_image = Image.open(img_data) 
                         plt.close(fig_map) # Close the figure to free memory
 
-                        # Convert PIL image to base64 data URL
-                        buffered = BytesIO()
-                        pil_image.save(buffered, format="PNG")
-                        img_str = base64.b64encode(buffered.getvalue()).decode()
-                        background_image_url = f"data:image/png;base64,{img_str}"
-
+                        # Pass the PIL image object directly
                         canvas_result = st_canvas(
                             fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
                             stroke_width=0, # No stroke for points
                             stroke_color="#000000",
-                            background_image=background_image_url, # Use base64 data URL
+                            background_image=pil_image, # Use the PIL image object
                             update_streamlit=True, # Rerun script on drawing
                             height=canvas_height,
                             width=canvas_width,
