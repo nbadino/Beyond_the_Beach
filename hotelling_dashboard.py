@@ -661,15 +661,23 @@ def main():
                         img_data = BytesIO()
                         fig_map.savefig(img_data, format='png', bbox_inches='tight', pad_inches=0)
                         img_data.seek(0)
-                        pil_image = Image.open(img_data) 
+                        pil_image_original = Image.open(img_data)
                         plt.close(fig_map) # Close the figure to free memory
 
-                        # Pass the PIL image object directly
+                        # Resize the PIL image to the exact canvas dimensions
+                        pil_image_resized = pil_image_original.resize((canvas_width, canvas_height))
+
+                        # Convert the resized PIL image to base64 data URL
+                        buffered = BytesIO()
+                        pil_image_resized.save(buffered, format="PNG")
+                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                        background_image_url = f"data:image/png;base64,{img_str}"
+
                         canvas_result = st_canvas(
                             fill_color="rgba(255, 165, 0, 0.3)",  # Color for drawing
                             stroke_width=0, # No stroke for points
                             stroke_color="#000000",
-                            background_image=pil_image, # Use the PIL image object
+                            background_image=background_image_url, # Use base64 data URL of resized image
                             update_streamlit=True, # Rerun script on drawing
                             height=canvas_height,
                             width=canvas_width,
