@@ -6,6 +6,13 @@ from hotelling_model import HotellingTwoDimensional  # Assuming your code is in 
 def main():
     st.set_page_config(layout="wide") # Use full width
     st.title("2D Hotelling Model Simulation Dashboard")
+
+    # Initialize session state variables if they don't exist
+    if 'simulation_run_once' not in st.session_state:
+        st.session_state.simulation_run_once = False
+        st.session_state.model = None
+        st.session_state.converged = False
+        st.session_state.current_profits = None
     
     # ===== Sidebar Controls =====
     st.sidebar.header("Simulation Parameters")
@@ -76,7 +83,7 @@ def main():
     if st.sidebar.button("Run Simulation"):
         with st.spinner("Running simulation..."):
             # Initialize model
-            model = HotellingTwoDimensional(
+            temp_model_obj = HotellingTwoDimensional( # Use a temporary variable name
                 n_firms=n_firms,
                 market_shape=market_shape,
                 beta=beta,
@@ -84,48 +91,68 @@ def main():
                 d_type=d_type,
                 rho_type=rho_type,
                 density_params=density_centers_params
+                # c, A, max_price, mu will use defaults from HotellingTwoDimensional
             )
             
             # Run simulation
-            converged = model.find_equilibrium(
+            temp_converged_status = temp_model_obj.find_equilibrium( # Use a temporary variable name
                 max_iterations=max_iter,
                 grid_size=grid_size,
                 verbose=False
             )
-            
-            # Create tabs for organizing output
-            tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density = st.tabs([
-                "📈 Visualizations & Overview", 
-                "📊 Detailed Equilibrium Properties", 
-                "📝 Theoretical Verification",
-                "🔬 Sensitivity & Density Analysis"
-            ])
 
-            with tab_viz_overview:
-                st.header("Simulation Overview & Visualizations")
-                # Use a potentially higher grid_size for visualization if desired
-                viz_grid_size = st.slider("Grid Size for Visualizations", 20, 150, 75, key="viz_grid_slider", help="Finer grid for smoother visuals.")
-                # Display results (summary)
-                with st.expander("Key Simulation Results", expanded=True):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.write("##### Final Locations")
-                        for i, loc in enumerate(model.locations):
-                            st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
-                            
-                    with col2:
-                        st.write("##### Final Prices")
-                        for i, price in enumerate(model.prices):
-                            st.write(f"Firm {i+1}: {price:.2f}")
-                    
-                    with col3:
-                        st.write("##### Final Profits")
-                        current_profits = model.total_profit(grid_size=grid_size)
+            # Store results in session state
+            st.session_state.model = temp_model_obj
+            st.session_state.converged = temp_converged_status
+            if temp_model_obj: # Ensure model object exists
+                 st.session_state.current_profits = temp_model_obj.total_profit(grid_size=grid_size)
+            else:
+                 st.session_state.current_profits = None
+            st.session_state.simulation_run_once = True
+
+    # Display content if simulation has been run at least once
+    if st.session_state.simulation_run_once and st.session_state.model:
+        # Retrieve model and converged status from session state for use in tabs
+        model = st.session_state.model
+        converged = st.session_state.converged
+        current_profits = st.session_state.current_profits
+
+        # Create tabs for organizing output
+        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density = st.tabs([
+            "📈 Visualizations & Overview", 
+            "📊 Detailed Equilibrium Properties", 
+            "📝 Theoretical Verification",
+            "🔬 Sensitivity & Density Analysis"
+        ])
+
+        with tab_viz_overview:
+            st.header("Simulation Overview & Visualizations")
+            # Use a potentially higher grid_size for visualization if desired
+            viz_grid_size = st.slider("Grid Size for Visualizations", 20, 150, 75, key="viz_grid_slider", help="Finer grid for smoother visuals.")
+            # Display results (summary)
+            with st.expander("Key Simulation Results", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write("##### Final Locations")
+                    for i, loc in enumerate(model.locations):
+                        st.write(f"Firm {i+1}: ({loc[0]:.2f}, {loc[1]:.2f})")
+                        
+                with col2:
+                    st.write("##### Final Prices")
+                    for i, price in enumerate(model.prices):
+                        st.write(f"Firm {i+1}: {price:.2f}")
+                
+                with col3:
+                    st.write("##### Final Profits")
+                    # current_profits should be available from session_state
+                    if current_profits is not None:
                         for i, profit_val in enumerate(current_profits):
                             st.write(f"Firm {i+1}: {profit_val:.2f}")
+                    else:
+                        st.write("Profits not calculated yet.")
 
-                # Visualizations
-                with st.expander("Market Visualization", expanded=True):
+            # Visualizations
+            with st.expander("Market Visualization", expanded=True):
                     viz_col1, viz_col2 = st.columns(2)
                     
                     with viz_col1:
@@ -172,13 +199,16 @@ def main():
 
                 # Firm Profits Analysis
                 st.subheader("Firm Profits")
-                profits = model.total_profit(grid_size=grid_size) # Recalculate or use from history if available
-                profits_data = [{"Firm": f"Firm {i+1}", "Profit": profits[i]} for i in range(model.n_firms)]
-                st.table(profits_data)
-                profit_stats_cols = st.columns(3)
-                profit_stats_cols[0].metric("Total Profit (All Firms)", f"{np.sum(profits):.2f}")
-                profit_stats_cols[1].metric("Average Profit per Firm", f"{np.mean(profits):.2f}")
-                profit_stats_cols[2].metric("Profit Std Dev", f"{np.std(profits):.2f}")
+                # profits are now from current_profits (from session_state)
+                if current_profits is not None:
+                    profits_data = [{"Firm": f"Firm {i+1}", "Profit": current_profits[i]} for i in range(model.n_firms)]
+                    st.table(profits_data)
+                    profit_stats_cols = st.columns(3)
+                    profit_stats_cols[0].metric("Total Profit (All Firms)", f"{np.sum(current_profits):.2f}")
+                    profit_stats_cols[1].metric("Average Profit per Firm", f"{np.mean(current_profits):.2f}")
+                    profit_stats_cols[2].metric("Profit Std Dev", f"{np.std(current_profits):.2f}")
+                else:
+                    st.write("Profits not available.")
 
                 # Market Segmentation Quantification
                 st.subheader("Market Segmentation Analysis (Approximate Shares)")
@@ -359,10 +389,15 @@ def main():
                                 for val in parameter_values:
                                     current_params = {
                                         "n_firms": n_firms, "market_shape": market_shape,
-                                    "beta": beta, "eta": eta, "d_type": d_type,
-                                    "rho_type": rho_type, "density_params": density_centers_params,
-                                    "c": model.c, "A": model.A, "max_price": model.max_price, "mu": model.mu
-                                }
+                                    # Access the main simulation model from session_state for base parameters
+                                    s_model = st.session_state.model
+                                    current_params = {
+                                        "n_firms": n_firms, "market_shape": market_shape, # From sidebar
+                                        "beta": beta, "eta": eta, "d_type": d_type,       # From sidebar
+                                        "rho_type": rho_type, "density_params": density_centers_params, # From sidebar
+                                        "c": s_model.c, "A": s_model.A, 
+                                        "max_price": s_model.max_price, "mu": s_model.mu # From session_state model
+                                    }
                                 
                                 if param_to_sweep == 'beta (price sensitivity)':
                                     current_params["beta"] = val
