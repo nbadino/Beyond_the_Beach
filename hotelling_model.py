@@ -437,7 +437,12 @@ class HotellingTwoDimensional:
                 max_ratio = max(max_ratio, ratio)
         
         # Calculate the minimum required elasticity
-        min_eta_required = 1 + self.beta * max_ratio + (self.beta**2 / self.mu)
+        # For quadratic distance, mu is typically 2 for strong convexity.
+        # For other types, self.mu (from constructor) is used, which might need user configuration
+        # if strong convexity is claimed for other d_types.
+        effective_mu = 2.0 if self.d_type == 'quadratic' else self.mu
+        
+        min_eta_required = 1 + self.beta * max_ratio + (self.beta**2 / effective_mu)
         results["omega_matrix"] = omega
         results["max_omega_ratio"] = max_ratio
         results["min_eta_required"] = min_eta_required
