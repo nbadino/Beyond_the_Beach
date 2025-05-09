@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import time
 from matplotlib.colors import ListedColormap
+import imageio
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 class HotellingTwoDimensional:
     def __init__(self, 
@@ -703,6 +705,86 @@ class HotellingTwoDimensional:
         
         plt.tight_layout()
         return fig
+
+    def generate_convergence_gif(self, filename="convergence.gif", fps=5, viz_grid_size_for_density_plot=20):
+        """
+        Generates a GIF of the convergence process showing firm locations and prices.
+
+        Parameters:
+        filename (str): The name of the file to save the GIF to.
+        fps (int): Frames per second for the GIF.
+        viz_grid_size_for_density_plot (int): Grid size for rendering density background.
+        
+        Returns:
+        str: The filename of the generated GIF, or None if history is insufficient.
+        """
+        if not self.price_history or not self.location_history or len(self.location_history) < 2:
+            print("Not enough history to generate GIF. Price or location history is too short.")
+            return None
+
+        frames = []
+        # Determine overall market bounds for consistent plotting, adding a small margin
+        margin_x = 0.1 * self.market_shape[0]
+        margin_y = 0.1 * self.market_shape[1]
+        market_min_x, market_max_x = 0 - margin_x, self.market_shape[0] + margin_x
+        market_min_y, market_max_y = 0 - margin_y, self.market_shape[1] + margin_y
+
+        density_Z = None
+        if self.rho_type != 'uniform': # Pre-calculate density for background
+            x_density = np.linspace(0, self.market_shape[0], viz_grid_size_for_density_plot)
+            y_density = np.linspace(0, self.market_shape[1], viz_grid_size_for_density_plot)
+            X_density, Y_density = np.meshgrid(x_density, y_density)
+            density_Z = np.zeros_like(X_density)
+            for i_row in range(viz_grid_size_for_density_plot):
+                for j_col in range(viz_grid_size_for_density_plot):
+                    density_Z[i_row, j_col] = self.rho(X_density[i_row, j_col], Y_density[i_row, j_col])
+        
+        num_frames = len(self.location_history)
+        for iter_idx in range(num_frames):
+            fig, ax = plt.subplots(figsize=(7, 6)) # Consistent figure size
+            canvas = FigureCanvas(fig)
+
+            current_locations = np.array(self.location_history[iter_idx])
+            current_prices = np.array(self.price_history[iter_idx])
+
+            if density_Z is not None:
+                ax.imshow(density_Z, extent=[0, self.market_shape[0], 0, self.market_shape[1]],
+                          origin='lower', aspect='auto', cmap='viridis', alpha=0.3, interpolation='bilinear')
+
+            firm_colors = plt.cm.get_cmap('tab10', self.n_firms) # Get a distinct color for each firm
+            for i in range(self.n_firms):
+                ax.scatter(current_locations[i, 0], current_locations[i, 1], s=120, 
+                           color=firm_colors(i), edgecolor='black', label=f'Firm {i+1}' if iter_idx == 0 else None,
+                           zorder=5) # Ensure firms are on top
+                ax.text(current_locations[i, 0], current_locations[i, 1] + 0.03 * self.market_shape[1], # Slightly offset text
+                        f'P:{current_prices[i]:.2f}', ha='center', va='bottom', fontsize=8, 
+                        bbox=dict(facecolor='white', alpha=0.5, pad=1, edgecolor='none'), zorder=6)
+            
+            ax.set_xlim(market_min_x, market_max_x)
+            ax.set_ylim(market_min_y, market_max_y)
+            ax.set_title(f'Iteration {iter_idx+1}/{num_frames}', fontsize=10)
+            ax.set_xlabel('x-coordinate', fontsize=9)
+            ax.set_ylabel('y-coordinate', fontsize=9)
+            if iter_idx == 0 and self.n_firms <= 10: # Add legend only on first frame for clarity
+                ax.legend(fontsize='x-small', loc='best')
+            ax.set_aspect('equal', adjustable='box') # Maintain aspect ratio
+            plt.tight_layout()
+
+            canvas.draw()
+            image = np.frombuffer(canvas.tostring_rgb(), dtype='uint8').reshape(
+                canvas.get_width_height()[::-1] + (3,)
+            )
+            frames.append(image)
+            plt.close(fig) # Close figure to free memory
+
+        if frames:
+            # Use duration in milliseconds per frame. loop=0 means infinite loop.
+            imageio.mimsave(filename, frames, duration=(1000/fps), loop=0) 
+            print(f"Convergence GIF saved as {filename}")
+            return filename
+        else:
+            print("No frames generated for GIF.")
+            return None
 
 # ========= SIMULATION TEST FUNCTIONS =========
 

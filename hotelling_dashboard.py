@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+import os # Needed for path joining and file check
 # streamlit_drawable_canvas, PIL.Image, base64 non sono più necessari
 from hotelling_model import HotellingTwoDimensional  # Assuming your code is in hotelling_model.py
 
@@ -22,6 +23,8 @@ def main():
         st.session_state.grid_test_results_data = None
         st.session_state.landscape_plot_fig = None # Store the figure object
         st.session_state.nash_deviation_output_data = None
+        st.session_state.convergence_gif_path = None
+        st.session_state.equilibrium_figures = [] # To store figures of multiple equilibria
 
     # ===== Sidebar Controls =====
     st.sidebar.header("Simulation Parameters")
@@ -182,6 +185,8 @@ def main():
             st.session_state.grid_test_results_data = None
             st.session_state.landscape_plot_fig = None
             st.session_state.nash_deviation_output_data = None
+            st.session_state.convergence_gif_path = None # Reset GIF path on new simulation
+            st.session_state.equilibrium_figures = [] # Reset equilibrium figures
 
 
     # Display content if simulation has been run at least once
@@ -253,7 +258,56 @@ def main():
             with st.expander("Convergence Metrics", expanded=True):
                 fig_conv = model.plot_convergence()
                 st.pyplot(fig_conv)
-                plt.clf() 
+                plt.clf()
+
+                # --- Convergence GIF Section ---
+                st.subheader("Convergence GIF")
+                gif_fps = st.slider("GIF FPS (Frames Per Second)", 1, 10, 3, key="gif_fps_slider_main") # Changed key for uniqueness
+                gif_density_grid = st.slider("GIF Background Density Grid Size", 10, 50, 20, key="gif_density_grid_slider_main", help="Grid size for rendering density in GIF background. Higher is smoother but slower.") # Changed key
+
+                if st.button("Generate Convergence GIF", key="generate_gif_button_main"): # Changed key
+                    if model and model.price_history and len(model.price_history) >= 2:
+                        # Ensure a unique filename, possibly in a temporary directory if permissions allow
+                        # For simplicity, saving in the current directory with a timestamp or unique ID
+                        # temp_gif_filename = f"temp_convergence_{n_firms}firms_{int(time.time())}.gif" 
+                        # Using a fixed name for simplicity in example, but unique names are better in production
+                        gif_filename = f"convergence_viz_tab.gif" 
+                        
+                        with st.spinner("Generating convergence GIF... This may take a moment."):
+                            # Ensure the model instance from session state is used
+                            generated_path = st.session_state.model.generate_convergence_gif(
+                                filename=gif_filename, 
+                                fps=gif_fps,
+                                viz_grid_size_for_density_plot=gif_density_grid
+                            )
+                        if generated_path and os.path.exists(generated_path):
+                            st.session_state.convergence_gif_path = generated_path
+                            st.success(f"Convergence GIF generated: {generated_path}")
+                        else:
+                            st.error("Failed to generate convergence GIF or GIF file not found.")
+                            st.session_state.convergence_gif_path = None
+                    else:
+                        st.warning("Not enough simulation history to generate a GIF. Run a longer simulation or ensure it converges over several iterations.")
+
+                if st.session_state.convergence_gif_path and os.path.exists(st.session_state.convergence_gif_path):
+                    try:
+                        with open(st.session_state.convergence_gif_path, "rb") as f_gif_viz: # Renamed file handle
+                            st.image(f_gif_viz.read(), caption="Convergence GIF", use_column_width=True)
+                        # Provide a download button for the GIF
+                        with open(st.session_state.convergence_gif_path, "rb") as file_bytes_gif_viz: # Renamed file handle
+                            st.download_button(
+                                label="Download Convergence GIF",
+                                data=file_bytes_gif_viz,
+                                file_name=os.path.basename(st.session_state.convergence_gif_path),
+                                mime="image/gif",
+                                key="download_gif_button_main" # Changed key
+                            )
+                    except FileNotFoundError:
+                        st.error("GIF file not found. It might have been deleted or moved.")
+                        st.session_state.convergence_gif_path = None # Reset if not found
+                elif st.session_state.convergence_gif_path: # Path exists in state but file doesn't
+                     st.warning(f"Previously generated GIF at {st.session_state.convergence_gif_path} seems to be missing. Please regenerate.")
+                     st.session_state.convergence_gif_path = None
 
             with tab_detailed_props:
                 st.header("Detailed Equilibrium Properties")
@@ -433,6 +487,50 @@ def main():
                         st.write(f"- Max location difference between equilibria: {uniqueness_results['max_location_diff']:.4f}")
                     if uniqueness_results.get("reason"):
                          st.warning(f"Note: {uniqueness_results['reason']}")
+
+                    # Display visualizations for multiple equilibria if found
+                    st.session_state.equilibrium_figures = [] # Clear previous figures
+                    if not uniqueness_results['unique'] and uniqueness_results['n_equilibria_found'] > 1:
+                        st.subheader(f"Visualizations of {uniqueness_results['n_equilibria_found']} Distinct Equilibria Found")
+                        
+                        # Use the main simulation's grid_size for these visualizations
+                        # grid_size is available from the sidebar controls / main simulation parameters
+                        
+                        for i_eq, eq_data in enumerate(uniqueness_results['equilibria']): # Renamed loop variable
+                            st.markdown(f"**Equilibrium {i_eq+1}**")
+                            # Create a temporary model instance to visualize this specific equilibrium
+                            # Use parameters from the main model (st.session_state.model)
+                            main_sim_model_for_eq_viz = st.session_state.model # Renamed for clarity
+                            temp_eq_model = HotellingTwoDimensional(
+                                n_firms=main_sim_model_for_eq_viz.n_firms, 
+                                market_shape=main_sim_model_for_eq_viz.market_shape,
+                                beta=main_sim_model_for_eq_viz.beta,
+                                eta=main_sim_model_for_eq_viz.eta,
+                                A=main_sim_model_for_eq_viz.A,
+                                c=main_sim_model_for_eq_viz.c,
+                                max_price=main_sim_model_for_eq_viz.max_price,
+                                mu=main_sim_model_for_eq_viz.mu,
+                                d_type=main_sim_model_for_eq_viz.d_type,
+                                rho_type=main_sim_model_for_eq_viz.rho_type,
+                                density_params=main_sim_model_for_eq_viz.density_params
+                            )
+                            # Set locations and prices for this specific equilibrium
+                            temp_eq_model.locations = eq_data['locations']
+                            temp_eq_model.prices = eq_data['prices']
+                            
+                            # Generate and display the plot using the main simulation's grid_size
+                            fig_eq_viz = temp_eq_model.visualize( # Renamed figure variable
+                                show_segmentation=True, 
+                                show_density=True, 
+                                grid_size=grid_size # Using main simulation grid_size
+                            )
+                            st.session_state.equilibrium_figures.append(fig_eq_viz) 
+                            st.pyplot(fig_eq_viz)
+                            plt.close(fig_eq_viz) # Close the figure to free memory
+                    elif uniqueness_results['unique'] and uniqueness_results['n_equilibria_found'] >= 1 :
+                         st.success("A single, unique equilibrium was consistently found.")
+                    elif uniqueness_results['n_equilibria_found'] == 0:
+                         st.warning("No equilibria were found during the uniqueness check.")
 
             with tab_sensitivity_density:
                 st.header("Sensitivity Analysis & Population Density Effects")
