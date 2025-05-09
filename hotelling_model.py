@@ -491,9 +491,9 @@ class HotellingTwoDimensional:
         self.prices = original_prices
         
         # Analyze uniqueness
-        n_equilibria = len(equilibria)
+        n_equilibria = len(equilibria) # Number of successfully converged attempts
         if n_equilibria == 0:
-            return {"unique": False, "reason": "No equilibria found"}
+            return {"unique": False, "reason": "No equilibria found", "n_equilibria_found": 0, "max_price_diff": 0, "max_location_diff": 0, "equilibria": []}
         
         # Need to sort firms consistently for comparison
         sorted_equilibria = []

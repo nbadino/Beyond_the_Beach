@@ -908,18 +908,31 @@ def main():
 
                 # Get default values from the main simulation for guidance
                 main_model = st.session_state.model
-                
-                beta_values_str = st.text_input(
-                    "Beta (price sensitivity) values (comma-separated):", 
-                    value=f"{main_model.beta if main_model else 0.5}, { (main_model.beta*0.5) if main_model else 0.25}, {(main_model.beta*2) if main_model else 1.0}",
-                    key="robust_beta_values"
+                default_n_firms_main = main_model.n_firms if main_model else 2
+                default_beta_main = main_model.beta if main_model else 0.5
+                default_eta_main = main_model.eta if main_model else 3.0
+
+                n_firms_values_str = st.text_input(
+                    "Number of Firms (comma-separated list, e.g., 2,3):",
+                    value=f"{default_n_firms_main}",
+                    key="robust_n_firms_values"
                 )
-                eta_values_str = st.text_input(
-                    "Eta (elasticity) values (comma-separated):", 
-                    value=f"{main_model.eta if main_model else 3.0}, {(main_model.eta*0.8) if main_model else 1.5}, {(main_model.eta*1.2) if main_model else 4.0}",
-                    key="robust_eta_values"
-                )
+
+                st.markdown("---")
+                st.markdown("**Beta (price sensitivity) Range:**")
+                beta_col1, beta_col2, beta_col3 = st.columns(3)
+                beta_min_robust = beta_col1.number_input("Min Beta", value=max(0.1, default_beta_main * 0.5), step=0.1, key="robust_beta_min")
+                beta_max_robust = beta_col2.number_input("Max Beta", value=default_beta_main * 1.5, step=0.1, key="robust_beta_max")
+                beta_steps_robust = beta_col3.number_input("Beta Steps", min_value=2, max_value=10, value=3, step=1, key="robust_beta_steps")
+
+                st.markdown("---")
+                st.markdown("**Eta (elasticity) Range:**")
+                eta_col1, eta_col2, eta_col3 = st.columns(3)
+                eta_min_robust = eta_col1.number_input("Min Eta", value=max(1.1, default_eta_main * 0.8), step=0.1, key="robust_eta_min") # Eta must be > 1
+                eta_max_robust = eta_col2.number_input("Max Eta", value=default_eta_main * 1.2, step=0.1, key="robust_eta_max")
+                eta_steps_robust = eta_col3.number_input("Eta Steps", min_value=2, max_value=10, value=3, step=1, key="robust_eta_steps")
                 
+                st.markdown("---")
                 d_types_to_test = st.multiselect(
                     "Distance Types (d_type) to test:",
                     options=["euclidean", "manhattan", "quadratic"],
@@ -949,14 +962,29 @@ def main():
 
                 if st.button("Run Assumption Robustness Test", key="run_assumption_robustness_button"):
                     try:
-                        beta_vals = [float(b.strip()) for b in beta_values_str.split(',') if b.strip()]
-                        eta_vals = [float(e.strip()) for e in eta_values_str.split(',') if e.strip()]
+                        n_firms_vals = [int(n.strip()) for n in n_firms_values_str.split(',') if n.strip() and int(n.strip()) >=2] # Firms must be >= 2
                         
-                        if not beta_vals or not eta_vals or not d_types_to_test:
-                            st.error("Please provide at least one value for Beta, Eta, and select at least one Distance Type.")
+                        if beta_min_robust >= beta_max_robust:
+                            st.error("Min Beta must be less than Max Beta.")
+                            return # Exit if invalid range
+                        if eta_min_robust >= eta_max_robust:
+                            st.error("Min Eta must be less than Max Eta.")
+                            return # Exit if invalid range
+                        if eta_min_robust <= 1.0: # Model constraint
+                            st.error("Min Eta must be greater than 1.0.")
+                            return
+
+                        beta_vals = np.linspace(beta_min_robust, beta_max_robust, int(beta_steps_robust))
+                        eta_vals = np.linspace(eta_min_robust, eta_max_robust, int(eta_steps_robust))
+                        
+                        if not n_firms_vals:
+                            st.error("Please provide at least one valid number of firms (>=2).")
+                        elif not d_types_to_test:
+                            st.error("Please select at least one Distance Type.")
                         else:
                             import itertools # For creating parameter combinations
-                            param_combinations = list(itertools.product(beta_vals, eta_vals, d_types_to_test))
+                            # Add n_firms_vals to the product
+                            param_combinations = list(itertools.product(n_firms_vals, beta_vals, eta_vals, d_types_to_test))
                             num_combinations = len(param_combinations)
                             st.info(f"Starting robustness test for {num_combinations} parameter combinations...")
                             
@@ -965,39 +993,37 @@ def main():
 
                             results_list = []
                             
-                            # Use main model's other parameters as baseline
-                            base_params = {
-                                "n_firms": main_model.n_firms if main_model else 2,
+                            # Use main model's other parameters as baseline, but n_firms will be from the loop
+                            base_params_for_robustness = { # Renamed to avoid conflict
+                                # "n_firms" will be set in the loop
                                 "market_shape": main_model.market_shape if main_model else (1,1),
                                 "A": main_model.A if main_model else 1.0,
                                 "c": main_model.c if main_model else 1.0,
                                 "max_price": main_model.max_price if main_model else 10.0,
-                                "mu": main_model.mu if main_model else 1.0, # mu is particularly relevant for quadratic
-                                "rho_type": main_model.rho_type if main_model else 'uniform', # Keep rho simple for these tests
+                                "mu": main_model.mu if main_model else 1.0, 
+                                "rho_type": main_model.rho_type if main_model else 'uniform', 
                                 "density_params": main_model.density_params if main_model and main_model.rho_type == 'multi_gaussian' else None
                             }
 
-                            for i, (beta_test, eta_test, d_type_test) in enumerate(param_combinations):
-                                status_text.text(f"Testing combination {i+1}/{num_combinations}: Beta={beta_test}, Eta={eta_test}, d_type='{d_type_test}'")
+                            for i, (n_firms_test, beta_test, eta_test, d_type_test) in enumerate(param_combinations):
+                                status_text.text(f"Testing combination {i+1}/{num_combinations}: Firms={n_firms_test}, Beta={beta_test:.2f}, Eta={eta_test:.2f}, d_type='{d_type_test}'")
                                 
-                                current_mu = base_params["mu"]
+                                current_mu_robust = base_params_for_robustness["mu"] # Renamed
                                 if d_type_test == 'quadratic':
-                                     current_mu = 2.0 # Typically mu=2 for quadratic
-                                # For other d_types, mu might be different or not strictly defined as strongly convex.
-                                # The verify_assumptions method handles this. We pass the current_mu.
-
+                                     current_mu_robust = 2.0 # Typically mu=2 for quadratic
+                                
                                 test_model = HotellingTwoDimensional(
-                                    n_firms=base_params["n_firms"],
-                                    market_shape=base_params["market_shape"],
+                                    n_firms=n_firms_test, # Use n_firms from the current combination
+                                    market_shape=base_params_for_robustness["market_shape"],
                                     beta=beta_test,
                                     eta=eta_test,
-                                    A=base_params["A"],
-                                    c=base_params["c"],
-                                    max_price=base_params["max_price"],
-                                    mu=current_mu, 
+                                    A=base_params_for_robustness["A"],
+                                    c=base_params_for_robustness["c"],
+                                    max_price=base_params_for_robustness["max_price"],
+                                    mu=current_mu_robust, 
                                     d_type=d_type_test,
-                                    rho_type=base_params["rho_type"],
-                                    density_params=base_params["density_params"]
+                                    rho_type=base_params_for_robustness["rho_type"],
+                                    density_params=base_params_for_robustness["density_params"]
                                 )
                                 
                                 # 1. Verify theoretical assumptions
@@ -1014,25 +1040,28 @@ def main():
                                 )
                                 
                                 results_list.append({
-                                    "Beta": beta_test, "Eta": eta_test, "d_type": d_type_test,
+                                    "N Firms": n_firms_test, # Add N Firms to results
+                                    "Beta": f"{beta_test:.3f}", # Format for consistent display
+                                    "Eta": f"{eta_test:.3f}",   # Format for consistent display
+                                    "d_type": d_type_test,
                                     "Ass.1 Satisfied": assumptions['assumption1_satisfied'],
                                     "Ass.2 Satisfied": assumptions['assumption2_satisfied'],
-                                    "Min Eta Required (Theory)": f"{assumptions.get('min_eta_required', 'N/A'):.2f}",
-                                    "Beta*d_bar < 1 (Theory)": assumptions.get('uniq_beta', 'N/A'),
-                                    "Empirically Unique": uniqueness['unique'],
-                                    "Num Equilibria Found": uniqueness['n_equilibria_found'],
-                                    "Reason (Uniqueness)": uniqueness.get('reason', '')
+                                    "Min Eta Req.": f"{assumptions.get('min_eta_required', 'N/A'):.2f}", # Shorter name
+                                    "Beta*d_bar<1": assumptions.get('uniq_beta', 'N/A'), # Shorter name
+                                    "Emp. Unique": uniqueness['unique'], # Shorter name
+                                    "Conv. Attempts": uniqueness['n_equilibria_found'], # Clarify meaning
+                                    "Reason (Uniq.)": uniqueness.get('reason', '') # Shorter name
                                 })
                                 progress_bar.progress((i + 1) / num_combinations)
                             
                             status_text.success(f"Robustness test complete for {num_combinations} combinations.")
                             st.session_state.assumption_robustness_results = results_list
                             
-                    except ValueError:
-                        st.error("Invalid input for Beta or Eta values. Please use comma-separated numbers.")
+                    except ValueError as ve_robust: # Catch specific ValueError
+                        st.error(f"Invalid input: {str(ve_robust)}. Please check parameter ranges and lists.")
                     except Exception as e_robust:
                         st.error(f"An error occurred during the assumption robustness test: {str(e_robust)}")
-                        st.exception(e_robust)
+                        st.exception(e_robust) # Shows full traceback in console for debugging
                         st.session_state.assumption_robustness_results = None
 
                 # Display results if they exist
