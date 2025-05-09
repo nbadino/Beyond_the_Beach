@@ -491,8 +491,8 @@ class HotellingTwoDimensional:
         self.prices = original_prices
         
         # Analyze uniqueness
-        n_equilibria = len(equilibria) # Number of successfully converged attempts
-        if n_equilibria == 0:
+        raw_converged_equilibria_count = len(equilibria) # Number of successfully converged attempts
+        if raw_converged_equilibria_count == 0:
             return {"unique": False, "reason": "No equilibria found", "n_equilibria_found": 0, "max_price_diff": 0, "max_location_diff": 0, "equilibria": []}
         
         # Need to sort firms consistently for comparison
@@ -506,30 +506,50 @@ class HotellingTwoDimensional:
                 'profits': eq['profits'][indices]
             })
         
-        # Compare all equilibria pairwise
-        unique = True
-        max_price_diff = 0
-        max_location_diff = 0
-        
-        for i in range(n_equilibria):
-            for j in range(i+1, n_equilibria):
-                # Calculate differences
-                price_diff = np.max(np.abs(sorted_equilibria[i]['prices'] - sorted_equilibria[j]['prices']))
-                location_diff = np.max(np.abs(sorted_equilibria[i]['locations'] - sorted_equilibria[j]['locations']))
+        # Calculate overall max differences among all converged attempts
+        max_price_diff_overall = 0
+        max_location_diff_overall = 0
+        if raw_converged_equilibria_count > 1:
+            for i in range(raw_converged_equilibria_count):
+                for j in range(i + 1, raw_converged_equilibria_count):
+                    price_d = np.max(np.abs(sorted_equilibria[i]['prices'] - sorted_equilibria[j]['prices']))
+                    location_d = np.max(np.abs(sorted_equilibria[i]['locations'] - sorted_equilibria[j]['locations']))
+                    max_price_diff_overall = max(max_price_diff_overall, price_d)
+                    max_location_diff_overall = max(max_location_diff_overall, location_d)
+
+        # Identify distinct equilibrium clusters
+        distinct_equilibria_clusters = []
+        if raw_converged_equilibria_count > 0:
+            distinct_equilibria_clusters.append(sorted_equilibria[0]) # First one is always a new cluster
+            
+            for eq_candidate in sorted_equilibria[1:]:
+                is_new_cluster = True
+                for cluster_rep in distinct_equilibria_clusters:
+                    price_diff_to_rep = np.max(np.abs(eq_candidate['prices'] - cluster_rep['prices']))
+                    location_diff_to_rep = np.max(np.abs(eq_candidate['locations'] - cluster_rep['locations']))
+                    
+                    if price_diff_to_rep <= tolerance * 10 and location_diff_to_rep <= tolerance * 10:
+                        is_new_cluster = False
+                        break # Belongs to this existing cluster
                 
-                max_price_diff = max(max_price_diff, price_diff)
-                max_location_diff = max(max_location_diff, location_diff)
-                
-                # Check if differences exceed tolerance
-                if price_diff > tolerance * 10 or location_diff > tolerance * 10:
-                    unique = False
+                if is_new_cluster:
+                    distinct_equilibria_clusters.append(eq_candidate)
         
+        num_distinct_clusters = len(distinct_equilibria_clusters)
+        is_empirically_unique = (num_distinct_clusters <= 1) # Unique if 0 or 1 distinct cluster
+
+        # If no equilibria converged, it's not unique in the sense of having AN equilibrium.
+        # If multiple distinct clusters found, it's not unique.
+        # If one distinct cluster found (even if from multiple attempts), it's unique.
+        if raw_converged_equilibria_count == 0: # Should have been caught by the first check, but for safety
+            is_empirically_unique = False 
+            
         return {
-            "unique": unique,
-            "n_equilibria_found": n_equilibria,
-            "max_price_diff": max_price_diff,
-            "max_location_diff": max_location_diff,
-            "equilibria": sorted_equilibria
+            "unique": is_empirically_unique,
+            "n_equilibria_found": num_distinct_clusters, # This now means number of *distinct* equilibria
+            "max_price_diff": max_price_diff_overall,
+            "max_location_diff": max_location_diff_overall,
+            "equilibria": distinct_equilibria_clusters # List of distinct equilibrium representatives
         }
     
     def visualize(self, show_segmentation=True, show_density=False, grid_size=100):
