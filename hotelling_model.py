@@ -771,10 +771,15 @@ class HotellingTwoDimensional:
             plt.tight_layout()
 
             canvas.draw()
-            image = np.frombuffer(canvas.tostring_rgb(), dtype='uint8').reshape(
-                canvas.get_width_height()[::-1] + (3,)
-            )
-            frames.append(image)
+            # Get ARGB buffer and convert to NumPy array
+            buf = canvas.tostring_argb()
+            image_argb = np.frombuffer(buf, dtype='uint8')
+            image_argb = image_argb.reshape(canvas.get_width_height()[::-1] + (4,))
+            
+            # Convert ARGB to RGB (discarding Alpha channel, taking R, G, B)
+            image_rgb = image_argb[:, :, 1:] # ARGB -> RGB
+            
+            frames.append(image_rgb)
             plt.close(fig) # Close figure to free memory
 
         if frames:
