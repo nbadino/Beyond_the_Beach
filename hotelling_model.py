@@ -93,49 +93,100 @@ class HotellingTwoDimensional:
             return 1.0  # Default uniform
     
     def d(self, consumer_loc, firm_loc):
-        """Transportation cost function based on specified type."""
+        """Transportation cost function based on specified type.
+        Can handle consumer_loc as a single point (2,) or an array of points (N,2).
+        """
+        diff = consumer_loc - firm_loc
+        # Determine axis for sum based on dimensionality of diff
+        # If consumer_loc is (N,2), diff is (N,2), sum along axis 1.
+        # If consumer_loc is (2,), diff is (2,), sum along axis 0.
+        axis_sum = diff.ndim - 1
+
         if self.d_type == 'euclidean':
-            return np.sqrt(np.sum((consumer_loc - firm_loc)**2))
+            return np.sqrt(np.sum(diff**2, axis=axis_sum))
         elif self.d_type == 'manhattan':
-            return np.sum(np.abs(consumer_loc - firm_loc))
+            return np.sum(np.abs(diff), axis=axis_sum)
         elif self.d_type == 'quadratic':
             # Quadratic distance (strongly convex with μ=2)
-            return np.sum((consumer_loc - firm_loc)**2)
+            return np.sum(diff**2, axis=axis_sum)
         else:
-            return np.sqrt(np.sum((consumer_loc - firm_loc)**2))  # Default euclidean
+            return np.sqrt(np.sum(diff**2, axis=axis_sum))  # Default euclidean
     
     def effective_price(self, consumer_loc, firm_idx):
         """Calculate effective price for a consumer at given location."""
         return self.prices[firm_idx] * (1 + self.d(consumer_loc, self.locations[firm_idx]))
     
     def choice_prob(self, consumer_loc):
-        """Calculate the logit choice probabilities for a consumer."""
-        effective_prices = np.array([self.effective_price(consumer_loc, i) 
-                                    for i in range(self.n_firms)])
-        logits = -self.beta * effective_prices
-        max_logit = np.max(logits)  # For numerical stability
-        exp_logits = np.exp(logits - max_logit)
-        return exp_logits / np.sum(exp_logits)
+        """Calculate the logit choice probabilities for a consumer or array of consumers."""
+        # consumer_loc can be (2,) for a single point, or (N,2) for N points.
+
+        if consumer_loc.ndim == 1:  # Single consumer location (2,)
+            effective_prices_all_firms = np.array([self.effective_price(consumer_loc, i)
+                                                   for i in range(self.n_firms)])
+            # effective_prices_all_firms is (n_firms,)
+            logits = -self.beta * effective_prices_all_firms
+            max_logit = np.max(logits)  # Scalar for numerical stability
+            exp_logits = np.exp(logits - max_logit)  # (n_firms,)
+            return exp_logits / np.sum(exp_logits)  # (n_firms,)
+
+        elif consumer_loc.ndim == 2:  # Array of consumer locations (N,2)
+            N = consumer_loc.shape[0]
+            effective_prices_all_firms = np.zeros((N, self.n_firms))
+            for i in range(self.n_firms):
+                # self.effective_price called with (N,2) consumer_loc returns (N,)
+                effective_prices_all_firms[:, i] = self.effective_price(consumer_loc, i)
+            
+            # effective_prices_all_firms is (N, n_firms)
+            logits = -self.beta * effective_prices_all_firms  # (N, n_firms)
+            max_logit = np.max(logits, axis=1, keepdims=True)  # (N, 1) for numerical stability
+            exp_logits = np.exp(logits - max_logit)  # (N, n_firms)
+            return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)  # (N, n_firms)
+        else:
+            raise ValueError(f"consumer_loc must be of shape (2,) or (N,2), got {consumer_loc.shape}")
     
     def demand_at_location(self, consumer_loc, firm_idx):
-        """Calculate demand from a single location."""
+        """Calculate demand from a single location or array of locations."""
+        # eff_price will be scalar if consumer_loc is (2,), or (N,) if consumer_loc is (N,2)
         eff_price = self.effective_price(consumer_loc, firm_idx)
-        price_elasticity = self.A * (eff_price ** (-self.eta))
-        choice_probability = self.choice_prob(consumer_loc)[firm_idx]
-        return price_elasticity * choice_probability * self.rho(*consumer_loc)
+        price_elasticity = self.A * (eff_price ** (-self.eta)) # scalar or (N,)
+        
+        # all_choice_probs will be (n_firms,) or (N, n_firms)
+        all_choice_probs = self.choice_prob(consumer_loc)
+        
+        if consumer_loc.ndim == 1:  # Single consumer_loc (2,)
+            choice_probability = all_choice_probs[firm_idx]  # scalar
+            # rho expects two scalar arguments x, y
+            rho_val = self.rho(consumer_loc[0], consumer_loc[1])  # scalar
+        elif consumer_loc.ndim == 2:  # Array of consumer_locs (N,2)
+            choice_probability = all_choice_probs[:, firm_idx]  # (N,)
+            # rho expects x and y as arrays if consumer_loc is an array of points
+            rho_val = self.rho(consumer_loc[:, 0], consumer_loc[:, 1])  # (N,)
+        else:
+            raise ValueError(f"consumer_loc must be of shape (2,) or (N,2), got {consumer_loc.shape}")
+            
+        return price_elasticity * choice_probability * rho_val  # scalar or (N,)
     
     def total_demand_grid(self, firm_idx, grid_size=30):
-        """Calculate total demand using grid-based numerical integration."""
-        x = np.linspace(0, self.market_shape[0], grid_size)
-        y = np.linspace(0, self.market_shape[1], grid_size)
+        """Calculate total demand using grid-based numerical integration (vectorized)."""
+        x_coords = np.linspace(0, self.market_shape[0], grid_size)
+        y_coords = np.linspace(0, self.market_shape[1], grid_size)
         dx = self.market_shape[0] / grid_size
         dy = self.market_shape[1] / grid_size
         
-        total = 0
-        for i in range(grid_size):
-            for j in range(grid_size):
-                consumer_loc = np.array([x[i], y[j]])
-                total += self.demand_at_location(consumer_loc, firm_idx) * dx * dy
+        # Create a meshgrid. indexing='ij' ensures X[i,j] = x_coords[i] and Y[i,j] = y_coords[j]
+        # This matches the loop order of the original implementation: x_coords outer, y_coords inner.
+        X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
+        
+        # consumer_locs will be an array of shape (grid_size*grid_size, 2)
+        # Each row is a consumer location [x, y]
+        consumer_locs = np.vstack([X.ravel(), Y.ravel()]).T
+        
+        # demands_at_all_points will be an array of shape (grid_size*grid_size,)
+        # containing the demand from each consumer grid point for the given firm_idx.
+        demands_at_all_points = self.demand_at_location(consumer_locs, firm_idx)
+        
+        # Sum all demands and multiply by the area element (dx * dy)
+        total = np.sum(demands_at_all_points) * dx * dy
         
         return total
     
