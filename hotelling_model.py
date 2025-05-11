@@ -152,7 +152,13 @@ class HotellingTwoDimensional:
         """Calculate demand from a single location or array of locations."""
         # eff_price will be scalar if consumer_loc is (2,), or (N,) if consumer_loc is (N,2)
         eff_price = self.effective_price(consumer_loc, firm_idx)
-        price_elasticity = self.A * (eff_price ** (-self.eta)) # scalar or (N,)
+        
+        # Add a small epsilon to prevent issues with eff_price being zero or too small,
+        # ensuring it's always positive before exponentiation.
+        epsilon = 1e-9 
+        stable_eff_price = np.maximum(eff_price, epsilon)
+        
+        price_elasticity = self.A * (stable_eff_price ** (-self.eta)) # scalar or (N,)
         
         # all_choice_probs will be (n_firms,) or (N, n_firms)
         all_choice_probs = self.choice_prob(consumer_loc)
