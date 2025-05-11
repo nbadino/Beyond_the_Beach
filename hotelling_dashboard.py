@@ -390,17 +390,23 @@ def main():
                 else:
                     st.error(f"Equilibrium not found after {iterations} iterations ({time_elapsed:.2f}s). Update method: {update_method}") # Corrected update_method display
 
-                st.subheader("Assumption Verification (V1 - Original Paper)")
-                
-                # Run assumption verification
-                # Use a potentially different grid_size for verification if needed, or same as simulation
-                # For now, using a fixed moderate grid_size for assumption checks to balance speed and accuracy.
-                # The paper's omega_ij involves an integral, so grid_size matters.
-                assumption_grid_size = st.slider("Grid Size for Assumption Verification", 10, 50, 20, help="Grid size for numerical integration in assumption checks (e.g., omega_ij).")
-                assumptions_results = model.verify_assumptions(grid_size=assumption_grid_size)
+                st.markdown("---")
+                st.subheader("Select Assumptions to Verify:")
+                verify_col1, verify_col2 = st.columns(2)
+                verify_v1 = verify_col1.checkbox("Verify V1 Assumptions (Original Paper)", value=True, key="verify_v1_checkbox")
+                verify_v2 = verify_col2.checkbox("Verify V2 Assumptions (New Paper Draft)", value=True, key="verify_v2_checkbox")
 
-                # Assumption 1: Regularity
-                st.markdown("**Assumption 1: Regularity**")
+                assumption_grid_size = 20 # Default value
+                if verify_v1 or verify_v2:
+                    assumption_grid_size = st.slider("Grid Size for Assumption Verification", 10, 50, 20, help="Grid size for numerical integration in assumption checks (e.g., omega_ij).")
+
+                if verify_v1:
+                    st.markdown("---")
+                    st.subheader("Assumption Verification (V1 - Original Paper)")
+                    assumptions_results = model.verify_assumptions(grid_size=assumption_grid_size)
+
+                    # Assumption 1: Regularity
+                    st.markdown("**Assumption 1: Regularity**")
                 ass1_col1, ass1_col2 = st.columns(2)
                 with ass1_col1:
                     st.write(f"Overall Satisfied: {assumptions_results['assumption1_satisfied']}")
@@ -468,13 +474,14 @@ def main():
                     st.write(f"Actual beta * d_bar: {beta_d_bar:.3f}")
                 with ass2_3_col3:
                     st.write(f"(beta: {model.beta:.2f}, d_bar: {max_d:.3f})")
+                
+                if verify_v2:
+                    st.markdown("---")
+                    st.subheader("Assumption Verification (V2 - New Paper Draft)")
+                    assumptions_results_v2 = model.verify_assumptions_v2(grid_size=assumption_grid_size)
 
-                st.markdown("---")
-                st.subheader("Assumption Verification (V2 - New Paper Draft)")
-                assumptions_results_v2 = model.verify_assumptions_v2(grid_size=assumption_grid_size)
-
-                # V2 Assumption 1: Regularity
-                st.markdown("**Assumption 1 (V2): Regularity**")
+                    # V2 Assumption 1: Regularity
+                    st.markdown("**Assumption 1 (V2): Regularity**")
                 ass1_v2_col1, ass1_v2_col2 = st.columns(2)
                 with ass1_v2_col1:
                     st.write(f"Overall Satisfied: {assumptions_results_v2['assumption1_v2_satisfied']}")
@@ -1018,7 +1025,14 @@ def main():
                     key="robust_assumption_grid_size",
                     help="Grid size for verify_assumptions (e.g., omega_ij calculation) within each test case."
                 )
-                robust_max_iter = st.slider("Max Iterations for each test simulation", 10, 100, 30, key="robust_max_iter_slider")
+                # robust_max_iter = st.slider("Max Iterations for each test simulation", 10, 100, 30, key="robust_max_iter_slider") # This was already here.
+
+                st.markdown("---")
+                st.markdown("**Select Assumptions to Include in Robustness Test:**")
+                robust_verify_col1, robust_verify_col2 = st.columns(2)
+                robust_include_v1 = robust_verify_col1.checkbox("Include V1 Assumptions", value=True, key="robust_include_v1_checkbox")
+                robust_include_v2 = robust_verify_col2.checkbox("Include V2 Assumptions", value=True, key="robust_include_v2_checkbox")
+                robust_max_iter = st.slider("Max Iterations for each test simulation", 10, 100, 30, key="robust_max_iter_slider") # Moved here for better flow
 
 
                 if st.button("Run Assumption Robustness Test", key="run_assumption_robustness_button"):
@@ -1087,9 +1101,14 @@ def main():
                                     density_params=base_params_for_robustness["density_params"]
                                 )
                                 
-                                # 1. Verify theoretical assumptions (V1 and V2)
-                                assumptions_v1 = test_model.verify_assumptions(grid_size=robust_assumption_grid_size)
-                                assumptions_v2 = test_model.verify_assumptions_v2(grid_size=robust_assumption_grid_size)
+                                # 1. Verify theoretical assumptions (conditionally)
+                                assumptions_v1_data = None
+                                if robust_include_v1:
+                                    assumptions_v1_data = test_model.verify_assumptions(grid_size=robust_assumption_grid_size)
+                                
+                                assumptions_v2_data = None
+                                if robust_include_v2:
+                                    assumptions_v2_data = test_model.verify_assumptions_v2(grid_size=robust_assumption_grid_size)
                                 
                                 # 2. Check empirical uniqueness
                                 # Ensure find_equilibrium is called within check_equilibrium_uniqueness
@@ -1105,19 +1124,27 @@ def main():
                                     "N Firms": n_firms_test, # Add N Firms to results
                                     "Beta": f"{beta_test:.3f}", 
                                     "Eta": f"{eta_test:.3f}",   
-                                    "d_type": d_type_test,
-                                    "Ass.1 V1": assumptions_v1['assumption1_satisfied'],
-                                    "Ass.2 V1": assumptions_v1['assumption2_satisfied'],
-                                    "EtaReq V1": f"{assumptions_v1.get('min_eta_required', 'N/A'):.2f}",
-                                    "B*d<1 V1": assumptions_v1.get('uniq_beta', 'N/A'),
-                                    "Ass.1 V2": assumptions_v2['assumption1_v2_satisfied'],
-                                    "Ass.2 V2": assumptions_v2['assumption2_v2_satisfied'],
-                                    "EtaReq V2": f"{assumptions_v2.get('min_eta_required_v2', 'N/A'):.2f}",
-                                    "B2*d<mu(e-1) V2": assumptions_v2.get('uniq_beta_v2', 'N/A'),
+                                    "d_type": d_type_test
+                                }
+                                
+                                if robust_include_v1 and assumptions_v1_data:
+                                    current_result["Ass.1 V1"] = assumptions_v1_data['assumption1_satisfied']
+                                    current_result["Ass.2 V1"] = assumptions_v1_data['assumption2_satisfied']
+                                    current_result["EtaReq V1"] = f"{assumptions_v1_data.get('min_eta_required', 'N/A'):.2f}"
+                                    current_result["B*d<1 V1"] = assumptions_v1_data.get('uniq_beta', 'N/A')
+                                
+                                if robust_include_v2 and assumptions_v2_data:
+                                    current_result["Ass.1 V2"] = assumptions_v2_data['assumption1_v2_satisfied']
+                                    current_result["Ass.2 V2"] = assumptions_v2_data['assumption2_v2_satisfied']
+                                    current_result["EtaReq V2"] = f"{assumptions_v2_data.get('min_eta_required_v2', 'N/A'):.2f}"
+                                    current_result["B2*d<mu(e-1) V2"] = assumptions_v2_data.get('uniq_beta_v2', 'N/A')
+                                    
+                                current_result.update({
                                     "Emp. Unique": uniqueness['unique'], 
                                     "Conv. Attempts": uniqueness['n_equilibria_found'], 
                                     "Reason (Uniq.)": uniqueness.get('reason', '') 
                                 })
+                                results_list.append(current_result)
                                 progress_bar.progress((i + 1) / num_combinations)
                             
                             status_text.success(f"Robustness test complete for {num_combinations} combinations.")
