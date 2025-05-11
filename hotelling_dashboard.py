@@ -1103,16 +1103,20 @@ def main():
                                 
                                 results_list.append({
                                     "N Firms": n_firms_test, # Add N Firms to results
-                                    "Beta": f"{beta_test:.3f}", # Format for consistent display
-                                    "Eta": f"{eta_test:.3f}",   # Format for consistent display
+                                    "Beta": f"{beta_test:.3f}", 
+                                    "Eta": f"{eta_test:.3f}",   
                                     "d_type": d_type_test,
-                                    "Ass.1 Satisfied": assumptions['assumption1_satisfied'],
-                                    "Ass.2 Satisfied": assumptions['assumption2_satisfied'],
-                                    "Min Eta Req.": f"{assumptions.get('min_eta_required', 'N/A'):.2f}", # Shorter name
-                                    "Beta*d_bar<1": assumptions.get('uniq_beta', 'N/A'), # Shorter name
-                                    "Emp. Unique": uniqueness['unique'], # Shorter name
-                                    "Conv. Attempts": uniqueness['n_equilibria_found'], # Clarify meaning
-                                    "Reason (Uniq.)": uniqueness.get('reason', '') # Shorter name
+                                    "Ass.1 V1": assumptions_v1['assumption1_satisfied'],
+                                    "Ass.2 V1": assumptions_v1['assumption2_satisfied'],
+                                    "EtaReq V1": f"{assumptions_v1.get('min_eta_required', 'N/A'):.2f}",
+                                    "B*d<1 V1": assumptions_v1.get('uniq_beta', 'N/A'),
+                                    "Ass.1 V2": assumptions_v2['assumption1_v2_satisfied'],
+                                    "Ass.2 V2": assumptions_v2['assumption2_v2_satisfied'],
+                                    "EtaReq V2": f"{assumptions_v2.get('min_eta_required_v2', 'N/A'):.2f}",
+                                    "B2*d<mu(e-1) V2": assumptions_v2.get('uniq_beta_v2', 'N/A'),
+                                    "Emp. Unique": uniqueness['unique'], 
+                                    "Conv. Attempts": uniqueness['n_equilibria_found'], 
+                                    "Reason (Uniq.)": uniqueness.get('reason', '') 
                                 })
                                 progress_bar.progress((i + 1) / num_combinations)
                             
