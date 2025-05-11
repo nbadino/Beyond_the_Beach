@@ -1120,10 +1120,10 @@ def main():
                                     verbose=False
                                 )
                                 
-                                results_list.append({
-                                    "N Firms": n_firms_test, # Add N Firms to results
-                                    "Beta": f"{beta_test:.3f}", 
-                                    "Eta": f"{eta_test:.3f}",   
+                                current_result = {
+                                    "N Firms": n_firms_test,
+                                    "Beta": f"{beta_test:.3f}",
+                                    "Eta": f"{eta_test:.3f}",
                                     "d_type": d_type_test
                                 }
                                 
@@ -1140,9 +1140,9 @@ def main():
                                     current_result["B2*d<mu(e-1) V2"] = assumptions_v2_data.get('uniq_beta_v2', 'N/A')
                                     
                                 current_result.update({
-                                    "Emp. Unique": uniqueness['unique'], 
-                                    "Conv. Attempts": uniqueness['n_equilibria_found'], 
-                                    "Reason (Uniq.)": uniqueness.get('reason', '') 
+                                    "Emp. Unique": uniqueness['unique'],
+                                    "Conv. Attempts": uniqueness['n_equilibria_found'],
+                                    "Reason (Uniq.)": uniqueness.get('reason', '')
                                 })
                                 results_list.append(current_result)
                                 progress_bar.progress((i + 1) / num_combinations)
