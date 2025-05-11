@@ -115,8 +115,10 @@ class HotellingTwoDimensional:
             return np.sqrt(np.sum(diff**2, axis=axis_sum))  # Default euclidean
     
     def effective_price(self, consumer_loc, firm_idx):
-        """Calculate effective price for a consumer at given location."""
-        return self.prices[firm_idx] * (1 + self.d(consumer_loc, self.locations[firm_idx]))
+        """Calculate effective price for a consumer at given location (V2: additive transport cost)."""
+        # consumer_loc can be (2,) or (N,2)
+        # self.d should handle this and return scalar or (N,)
+        return self.prices[firm_idx] + self.d(consumer_loc, self.locations[firm_idx])
     
     def choice_prob(self, consumer_loc):
         """Calculate the logit choice probabilities for a consumer or array of consumers."""
