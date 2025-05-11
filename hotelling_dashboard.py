@@ -386,11 +386,11 @@ def main():
                 st.header("Theoretical Verification & Assumptions")
                 st.subheader("Equilibrium Existence")
                 if converged:
-                    st.success(f"Equilibrium found in {iterations} iterations ({time_elapsed:.2f}s). Update method: {model.find_equilibrium.__defaults__[2] if update_method is None else update_method}")
+                    st.success(f"Equilibrium found in {iterations} iterations ({time_elapsed:.2f}s). Update method: {update_method}") # Corrected update_method display
                 else:
-                    st.error(f"Equilibrium not found after {iterations} iterations ({time_elapsed:.2f}s). Update method: {model.find_equilibrium.__defaults__[2] if update_method is None else update_method}")
+                    st.error(f"Equilibrium not found after {iterations} iterations ({time_elapsed:.2f}s). Update method: {update_method}") # Corrected update_method display
 
-                st.subheader("Assumption Verification (based on paper definitions)")
+                st.subheader("Assumption Verification (V1 - Original Paper)")
                 
                 # Run assumption verification
                 # Use a potentially different grid_size for verification if needed, or same as simulation
@@ -468,8 +468,69 @@ def main():
                     st.write(f"Actual beta * d_bar: {beta_d_bar:.3f}")
                 with ass2_3_col3:
                     st.write(f"(beta: {model.beta:.2f}, d_bar: {max_d:.3f})")
+
+                st.markdown("---")
+                st.subheader("Assumption Verification (V2 - New Paper Draft)")
+                assumptions_results_v2 = model.verify_assumptions_v2(grid_size=assumption_grid_size)
+
+                # V2 Assumption 1: Regularity
+                st.markdown("**Assumption 1 (V2): Regularity**")
+                ass1_v2_col1, ass1_v2_col2 = st.columns(2)
+                with ass1_v2_col1:
+                    st.write(f"Overall Satisfied: {assumptions_results_v2['assumption1_v2_satisfied']}")
                 
-                # Empirical Uniqueness Check
+                st.markdown("___1.1 Cost continuous & convex, rho log-concave:___")
+                ass1_1_v2_col1, ass1_1_v2_col2 = st.columns(2)
+                with ass1_1_v2_col1:
+                    st.write(f"- Cost continuous: {'True (by design)'}")
+                    st.write(f"- Cost convex: {assumptions_results_v2['reg_cost_convex_v2']} (for d_type='{model.d_type}')")
+                with ass1_1_v2_col2:
+                    st.warning("Log-concavity of rho(s) is stated in paper but not automatically checked.")
+
+                st.markdown("___1.2 Strategy spaces compact:___")
+                st.write(f"- {'True (by design)'}")
+                
+                st.markdown("___1.3 Elasticity eta > 1:___")
+                ass1_3_v2_col1, ass1_3_v2_col2 = st.columns(2)
+                with ass1_3_v2_col1:
+                    st.write(f"- Condition (eta > 1): {assumptions_results_v2['reg_elasticity_v2']}")
+                with ass1_3_v2_col2:
+                    st.write(f"Actual eta: {model.eta}")
+
+                st.markdown("---")
+                # V2 Assumption 2: Uniqueness
+                st.markdown("**Assumption 2 (V2): Uniqueness**")
+                ass2_v2_col1, ass2_v2_col2 = st.columns(2)
+                with ass2_v2_col1:
+                    st.write(f"Overall Satisfied: {assumptions_results_v2['assumption2_v2_satisfied']}")
+
+                st.markdown("___2.1 d(s, x_i) is mu-strongly convex:___")
+                ass2_1_v2_col1, ass2_1_v2_col2 = st.columns(2)
+                with ass2_1_v2_col1:
+                    st.write(f"- Condition: {assumptions_results_v2['uniq_strongly_convex_v2']} (for d_type='{model.d_type}')")
+                with ass2_1_v2_col2:
+                    effective_mu_v2_display = 2.0 if model.d_type == 'quadratic' else model.mu
+                    st.write(f"(mu = {effective_mu_v2_display}, typically 2 for quadratic)")
+
+                st.markdown(r"___2.2 Elasticity condition ($\eta > 1 + \beta \max_i \frac{\sum_{j \neq i} \omega_{ij}}{\omega_{ii}} + \frac{\beta^2}{\mu}$):___")
+                ass2_2_v2_col1, ass2_2_v2_col2, ass2_2_v2_col3 = st.columns(3)
+                with ass2_2_v2_col1:
+                    st.write(f"- Condition satisfied: {assumptions_results_v2['uniq_elasticity_v2']}")
+                with ass2_2_v2_col2:
+                    st.write(f"Actual eta: {model.eta:.3f}")
+                with ass2_2_v2_col3:
+                    st.write(f"Required eta > {assumptions_results_v2['min_eta_required_v2']:.3f}")
+                
+                st.markdown(r"___2.3 Beta condition ($\beta^2 \bar{d} < \mu (\eta - 1)$):___")
+                ass2_3_v2_col1, ass2_3_v2_col2, ass2_3_v2_col3 = st.columns(3)
+                with ass2_3_v2_col1:
+                    st.write(f"- Condition satisfied: {assumptions_results_v2['uniq_beta_v2']}")
+                with ass2_3_v2_col2:
+                    st.write(f"beta^2*d_bar = {assumptions_results_v2['uniq_beta_v2_lhs_val']:.3f}")
+                with ass2_3_v2_col3:
+                    st.write(f"mu*(eta-1) = {assumptions_results_v2['uniq_beta_v2_rhs_val']:.3f}")
+
+                # Empirical Uniqueness Check (remains common for both assumption sets)
                 if run_uniqueness_check:
                     st.markdown("---")
                     st.subheader("Empirical Equilibrium Uniqueness Test")
@@ -1026,8 +1087,9 @@ def main():
                                     density_params=base_params_for_robustness["density_params"]
                                 )
                                 
-                                # 1. Verify theoretical assumptions
-                                assumptions = test_model.verify_assumptions(grid_size=robust_assumption_grid_size)
+                                # 1. Verify theoretical assumptions (V1 and V2)
+                                assumptions_v1 = test_model.verify_assumptions(grid_size=robust_assumption_grid_size)
+                                assumptions_v2 = test_model.verify_assumptions_v2(grid_size=robust_assumption_grid_size)
                                 
                                 # 2. Check empirical uniqueness
                                 # Ensure find_equilibrium is called within check_equilibrium_uniqueness

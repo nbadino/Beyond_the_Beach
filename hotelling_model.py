@@ -459,7 +459,74 @@ class HotellingTwoDimensional:
                                           results["uniq_beta"])
         
         return results
-    
+
+    def verify_assumptions_v2(self, grid_size=20):
+        """
+        Verify if the V2 assumptions (from the new paper draft) are satisfied.
+        
+        Returns:
+        dict: Results of V2 assumption verification
+        """
+        results_v2 = {
+            # Assumption 1 (V2): Regularity - Largely similar to V1
+            "reg_cost_continuous_v2": True,  # Continuous by design
+            "reg_cost_convex_v2": self.d_type in ['euclidean', 'manhattan', 'quadratic'], # Convexity of d(s,x_i)
+            # Log-concavity of rho(s) is also part of Ass 1.1 V2, not automatically checked here.
+            "reg_compact_v2": True,  # Strategy spaces compact by design
+            "reg_elasticity_v2": self.eta > 1,
+            
+            # Assumption 2 (V2): Uniqueness
+            "uniq_strongly_convex_v2": self.d_type == 'quadratic', # mu-strong convexity of d(s,x_i)
+        }
+        
+        # Omega_ij calculation (same as V1)
+        omega = np.zeros((self.n_firms, self.n_firms))
+        x_coords_v2 = np.linspace(0, self.market_shape[0], grid_size) # Renamed to avoid scope issues
+        y_coords_v2 = np.linspace(0, self.market_shape[1], grid_size) # Renamed
+        dx_v2 = self.market_shape[0] / grid_size # Renamed
+        dy_v2 = self.market_shape[1] / grid_size # Renamed
+        
+        for i in range(self.n_firms):
+            for j in range(self.n_firms):
+                for ix_v2 in range(grid_size): # Renamed
+                    for iy_v2 in range(grid_size): # Renamed
+                        consumer_loc_v2 = np.array([x_coords_v2[ix_v2], y_coords_v2[iy_v2]]) # Renamed
+                        probs_v2 = self.choice_prob(consumer_loc_v2) # Renamed
+                        omega[i, j] += self.rho(x_coords_v2[ix_v2], y_coords_v2[iy_v2]) * probs_v2[i] * probs_v2[j] * dx_v2 * dy_v2
+        
+        max_ratio_v2 = 0 # Renamed
+        for i in range(self.n_firms):
+            sum_others_v2 = np.sum(omega[i, :]) - omega[i, i] # Renamed
+            if omega[i, i] > 0:
+                ratio_v2 = sum_others_v2 / omega[i, i] # Renamed
+                max_ratio_v2 = max(max_ratio_v2, ratio_v2)
+        
+        effective_mu_v2 = 2.0 if self.d_type == 'quadratic' else self.mu # Renamed
+        
+        min_eta_required_v2 = 1 + self.beta * max_ratio_v2 + (self.beta**2 / effective_mu_v2) # Renamed
+        results_v2["min_eta_required_v2"] = min_eta_required_v2
+        results_v2["uniq_elasticity_v2"] = self.eta > min_eta_required_v2 # Assumption 2.2 V2
+        
+        # Assumption 2.3 V2: beta^2 * d_bar < mu * (eta - 1)
+        d_bar_v2 = self.max_transport_cost() # Renamed
+        condition_2_3_v2_lhs = self.beta**2 * d_bar_v2
+        condition_2_3_v2_rhs = effective_mu_v2 * (self.eta - 1)
+        results_v2["uniq_beta_v2_lhs_val"] = condition_2_3_v2_lhs
+        results_v2["uniq_beta_v2_rhs_val"] = condition_2_3_v2_rhs
+        results_v2["uniq_beta_v2"] = condition_2_3_v2_lhs < condition_2_3_v2_rhs
+        
+        # Overall V2 assumptions
+        results_v2["assumption1_v2_satisfied"] = (results_v2["reg_cost_continuous_v2"] and 
+                                                 results_v2["reg_cost_convex_v2"] and 
+                                                 # Log-concavity of rho not checked here
+                                                 results_v2["reg_compact_v2"] and 
+                                                 results_v2["reg_elasticity_v2"])
+        
+        results_v2["assumption2_v2_satisfied"] = (results_v2["uniq_strongly_convex_v2"] and 
+                                                  results_v2["uniq_elasticity_v2"] and 
+                                                  results_v2["uniq_beta_v2"])
+        return results_v2
+
     def check_equilibrium_uniqueness(self, n_attempts=5, max_iterations=50, 
                                     tolerance=1e-4, grid_size=30, verbose=True):
         """
