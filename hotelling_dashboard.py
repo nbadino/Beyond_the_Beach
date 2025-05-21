@@ -35,10 +35,16 @@ def main():
     market_shape = (st.sidebar.number_input("Market Width", 1.0, 5.0, 1.0),
                     st.sidebar.number_input("Market Height", 1.0, 5.0, 1.0))
     
-    col1, col2 = st.sidebar.columns(2)
-    beta = col1.number_input("Beta (price sensitivity)", 0.1, 5.0, 0.5)
-    eta = col2.number_input("Eta (elasticity)", 1.1, 5.0, 3.0)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Demand and Cost Parameters")
+    alpha_demand_input = st.sidebar.number_input("Alpha (Demand Intercept)", 0.1, 50.0, 10.0, key="alpha_demand_sb", help="Parameter 'alpha' in linear demand q = alpha - gamma*P")
+    gamma_demand_input = st.sidebar.number_input("Gamma (Demand Slope)", 0.1, 10.0, 1.0, key="gamma_demand_sb", help="Parameter 'gamma' in linear demand q = alpha - gamma*P")
+    t_transport_cost_input = st.sidebar.number_input("t (Transport Cost Rate)", 0.0, 5.0, 1.0, key="t_transport_sb", help="Transportation cost rate 't'")
+    beta_logit_input = st.sidebar.number_input("Beta (Logit Sensitivity)", 0.1, 10.0, 1.0, key="beta_logit_sb", help="Sensitivity parameter 'beta' in the logit choice model")
+    # Marginal cost 'c' and 'max_price' are taken from model defaults or could be added here if needed.
     
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Spatial Configuration")
     # Distance/density controls
     d_type = st.sidebar.selectbox("Distance Type", 
                                  ["euclidean", "manhattan", "quadratic"])
@@ -144,15 +150,17 @@ def main():
     if st.sidebar.button("Run Simulation"):
         with st.spinner("Running simulation..."):
             # Initialize model
-            temp_model_obj = HotellingTwoDimensional( # Use a temporary variable name
+            temp_model_obj = HotellingTwoDimensional( 
                 n_firms=n_firms,
                 market_shape=market_shape,
-                beta=beta,
-                eta=eta,
+                alpha_demand=alpha_demand_input,
+                gamma_demand=gamma_demand_input,
+                t_transport_cost=t_transport_cost_input,
+                beta_logit=beta_logit_input,
                 d_type=d_type,
                 rho_type=rho_type,
                 density_params=density_centers_params
-                # c, A, max_price, mu will use defaults from HotellingTwoDimensional
+                # c and max_price will use defaults from HotellingTwoDimensional constructor
             )
             
             # Run simulation
@@ -196,14 +204,13 @@ def main():
 
         # Create tabs for organizing output
         tab_viz_overview, tab_detailed_props, tab_sensitivity_density, \
-        tab_dynamics_robustness, tab_advanced_analysis = st.tabs([ # Removed tab_theory and tab_assumption_robustness
+        tab_dynamics_robustness, tab_advanced_analysis, tab_monopoly = st.tabs([ 
             "📈 Visualizations & Overview", 
             "📊 Detailed Equilibrium Properties", 
-            # "📝 Theoretical Verification", # REMOVED
             "🔬 Sensitivity & Density Analysis",
             "⚙️ Dynamics & Robustness",
-            "🗺️ Advanced Analysis & Metrics"
-            # "🛡️ Assumption Robustness Test" # REMOVED
+            "🗺️ Advanced Analysis & Metrics",
+            "👑 Monopoly Analysis" 
         ])
 
         with tab_viz_overview:
@@ -384,13 +391,24 @@ def main():
                 
                 param_to_sweep = st.selectbox(
                     "Select parameter to vary:",
-                    options=['beta (price sensitivity)', 'eta (elasticity)'],
+                    options=['alpha_demand', 'gamma_demand', 't_transport_cost', 'beta_logit'],
                     key="sensitivity_param_select"
                 )
 
+                # Adjust default sweep values based on typical ranges of new parameters
+                default_min_val, default_max_val, default_step = 0.5, 2.0, 0.1
+                if param_to_sweep == 'alpha_demand':
+                    default_min_val, default_max_val, default_step = 5.0, 15.0, 1.0
+                elif param_to_sweep == 'gamma_demand':
+                    default_min_val, default_max_val, default_step = 0.5, 2.0, 0.1
+                elif param_to_sweep == 't_transport_cost':
+                    default_min_val, default_max_val, default_step = 0.5, 3.0, 0.25
+                elif param_to_sweep == 'beta_logit':
+                    default_min_val, default_max_val, default_step = 0.5, 5.0, 0.5
+                    
                 sweep_col1, sweep_col2, sweep_col3 = st.columns(3)
-                min_val = sweep_col1.number_input("Minimum value", value=0.1, step=0.1, key="sweep_min")
-                max_val = sweep_col2.number_input("Maximum value", value=1.0, step=0.1, key="sweep_max")
+                min_val = sweep_col1.number_input("Minimum value", value=default_min_val, step=default_step, key="sweep_min")
+                max_val = sweep_col2.number_input("Maximum value", value=default_max_val, step=default_step, key="sweep_max")
                 num_steps = sweep_col3.number_input("Number of steps", min_value=2, max_value=20, value=5, step=1, key="sweep_steps")
 
                 if st.button("Run Sensitivity Analysis", key="run_sensitivity_analysis_button"):
@@ -406,16 +424,29 @@ def main():
                         try:
                             with st.spinner(f"Running sensitivity analysis for {param_to_sweep}... This may take a moment."):
                                 for val in parameter_values_sweep:
-                                    s_model = st.session_state.model
+                                    # Base parameters from the main simulation's setup
+                                    # These are the values from the sidebar when "Run Simulation" was last pressed
+                                    # or their initial defaults.
                                     current_params = {
-                                        "n_firms": n_firms, "market_shape": market_shape, 
-                                        "beta": beta, "eta": eta, "d_type": d_type,      
-                                        "rho_type": rho_type, "density_params": density_centers_params, 
-                                        "c": s_model.c, "A": s_model.A, 
-                                        "max_price": s_model.max_price, "mu": s_model.mu 
+                                        "n_firms": n_firms, # From sidebar
+                                        "market_shape": market_shape, # From sidebar
+                                        "alpha_demand": alpha_demand_input, # From sidebar
+                                        "gamma_demand": gamma_demand_input, # From sidebar
+                                        "t_transport_cost": t_transport_cost_input, # From sidebar
+                                        "beta_logit": beta_logit_input, # From sidebar
+                                        "d_type": d_type, # From sidebar
+                                        "rho_type": rho_type, # From sidebar
+                                        "density_params": density_centers_params, # From sidebar
+                                        # c and max_price will use defaults from constructor if not specified
+                                        # For sensitivity, it's better to fix them if they are not being swept.
+                                        # Assuming they are fixed at the model's defaults for now.
+                                        # If c or max_price were sidebar inputs, they'd be used here.
                                     }
-                                    if param_to_sweep == 'beta (price sensitivity)': current_params["beta"] = val
-                                    elif param_to_sweep == 'eta (elasticity)': current_params["eta"] = val
+                                    # Override the parameter being swept
+                                    if param_to_sweep == 'alpha_demand': current_params["alpha_demand"] = val
+                                    elif param_to_sweep == 'gamma_demand': current_params["gamma_demand"] = val
+                                    elif param_to_sweep == 't_transport_cost': current_params["t_transport_cost"] = val
+                                    elif param_to_sweep == 'beta_logit': current_params["beta_logit"] = val
                                     
                                     temp_model_sens = HotellingTwoDimensional(**current_params)
                                     # Use find_equilibrium from the temp_model_sens instance
@@ -436,7 +467,7 @@ def main():
                                         temp_results_sensitivity['avg_profits'].append(np.nan)
                                         temp_results_sensitivity['loc_std_dev_x'].append(np.nan)
                                         temp_results_sensitivity['loc_std_dev_y'].append(np.nan)
-                                        st.warning(f"Simulation did not converge for {param_to_sweep.split(' ')[0]} = {val:.2f}")
+                                        st.warning(f"Simulation did not converge for {param_to_sweep} = {val:.2f}")
                                         all_simulations_converged_in_sweep = False
                             
                             st.session_state.sensitivity_results_data = temp_results_sensitivity # Store in session state
@@ -628,13 +659,19 @@ def main():
                                         st.warning(f"Skipping invalid grid size: {test_gs}")
                                         continue
                                     
-                                    s_model_grid = st.session_state.model # Access model from session state
+                                    s_model_grid = st.session_state.model # Access model from session state for default c, max_price
                                     temp_params_for_grid_test = {
-                                        "n_firms": n_firms, "market_shape": market_shape,
-                                        "beta": beta, "eta": eta, "d_type": d_type,
-                                        "rho_type": rho_type, "density_params": density_centers_params,
-                                        "c": s_model_grid.c, "A": s_model_grid.A, 
-                                        "max_price": s_model_grid.max_price, "mu": s_model_grid.mu
+                                        "n_firms": n_firms, # From sidebar
+                                        "market_shape": market_shape, # From sidebar
+                                        "alpha_demand": alpha_demand_input, # From sidebar
+                                        "gamma_demand": gamma_demand_input, # From sidebar
+                                        "t_transport_cost": t_transport_cost_input, # From sidebar
+                                        "beta_logit": beta_logit_input, # From sidebar
+                                        "d_type": d_type, # From sidebar
+                                        "rho_type": rho_type, # From sidebar
+                                        "density_params": density_centers_params, # From sidebar
+                                        "c": s_model_grid.c, # from model instance
+                                        "max_price": s_model_grid.max_price # from model instance
                                     }
                                     temp_model_grid_test = HotellingTwoDimensional(**temp_params_for_grid_test)
                                     
@@ -737,7 +774,111 @@ def main():
                 else:
                     st.info("Run a simulation that converges to an equilibrium to perform profit landscape analysis.")
 
-            # ASSUMPTION ROBUSTNESS TAB REMOVED
+            with tab_monopoly:
+                st.header("👑 Monopoly Analysis")
+                st.write("""
+                This section analyzes the optimal location and price for a single firm (monopolist)
+                based on the theoretical model (Propositions \ref{prop:mono_price} and \ref{prop:mono_center} from the paper).
+                The parameters used are those currently set in the sidebar.
+                Note: The 'Number of firms' parameter in the sidebar is ignored for this specific analysis; it always assumes N=1.
+                """)
+
+                mono_grid_size = st.slider(
+                    "Grid Size for Monopoly Calculations", 
+                    min_value=20, max_value=100, value=30, step=5, 
+                    key="mono_grid_size_slider",
+                    help="Grid size for numerical integrations (e.g., total mass, weighted distance)."
+                )
+                
+                landscape_grid_mono = st.slider(
+                    "Grid Size for d_bar Landscape Visualization",
+                    min_value=10, max_value=50, value=20, step=1,
+                    key="mono_landscape_grid_slider",
+                    help="Resolution for visualizing the weighted average distance landscape."
+                )
+
+                if 'monopoly_results' not in st.session_state:
+                    st.session_state.monopoly_results = None
+                if 'd_bar_landscape_fig' not in st.session_state:
+                    st.session_state.d_bar_landscape_fig = None
+
+                if st.button("Solve Monopoly Case", key="solve_monopoly_button"):
+                    with st.spinner("Solving for monopolist's optimal strategy..."):
+                        # Create a temporary model instance configured for a monopolist
+                        # using current sidebar parameters for demand, cost, etc.
+                        monopoly_model_instance = HotellingTwoDimensional(
+                            n_firms=1, # Crucial for monopoly case
+                            market_shape=market_shape,
+                            alpha_demand=alpha_demand_input,
+                            gamma_demand=gamma_demand_input,
+                            t_transport_cost=t_transport_cost_input,
+                            beta_logit=beta_logit_input, # Though beta_logit is for choice with >1 firms, it's part of init
+                            d_type=d_type,
+                            rho_type=rho_type,
+                            density_params=density_centers_params
+                            # c and max_price will use defaults
+                        )
+                        
+                        # Solve the monopoly case
+                        results_mono = monopoly_model_instance.solve_monopoly_case(grid_size=mono_grid_size)
+                        st.session_state.monopoly_results = results_mono
+                        
+                        # Generate landscape for d_bar_rho
+                        d_bar_matrix, x_coords_dbar, y_coords_dbar = \
+                            monopoly_model_instance.get_weighted_average_distance_landscape(
+                                landscape_grid_size=landscape_grid_mono, 
+                                calculation_grid_size=mono_grid_size
+                            )
+                        
+                        fig_dbar, ax_dbar = plt.subplots(figsize=(8,7))
+                        if d_bar_matrix is not None and not np.all(np.isnan(d_bar_matrix)):
+                            im_dbar = ax_dbar.imshow(d_bar_matrix.T, origin='lower', aspect='auto', cmap='coolwarm',
+                                                 extent=[x_coords_dbar.min(), x_coords_dbar.max(), 
+                                                         y_coords_dbar.min(), y_coords_dbar.max()],
+                                                 interpolation='bilinear')
+                            fig_dbar.colorbar(im_dbar, ax=ax_dbar, label=r"Weighted Avg. Distance ($\bar{d}_{\rho}$)")
+                            
+                            # Plot optimal location
+                            opt_loc_mono = results_mono.get("optimal_location")
+                            if opt_loc_mono is not None:
+                                ax_dbar.scatter(opt_loc_mono[0], opt_loc_mono[1], s=150, c='black', marker='*', 
+                                                label=f"Optimal Location ({opt_loc_mono[0]:.2f}, {opt_loc_mono[1]:.2f})",
+                                                edgecolor='white')
+                                ax_dbar.legend()
+                        else:
+                            ax_dbar.text(0.5, 0.5, "Could not compute d_bar landscape (e.g. M=0).", 
+                                         ha='center', va='center', transform=ax_dbar.transAxes)
+
+                        ax_dbar.set_title(r"Landscape of Weighted Average Distance $\bar{d}_{\rho}(x)$")
+                        ax_dbar.set_xlabel("X-coordinate")
+                        ax_dbar.set_ylabel("Y-coordinate")
+                        st.session_state.d_bar_landscape_fig = fig_dbar
+                        st.success("Monopoly analysis complete.")
+
+                if st.session_state.monopoly_results:
+                    res_m = st.session_state.monopoly_results
+                    st.subheader("Monopolist's Optimal Strategy:")
+                    
+                    mono_col1, mono_col2, mono_col3 = st.columns(3)
+                    mono_col1.metric("Optimal Location (x*)", f"({res_m['optimal_location'][0]:.3f}, {res_m['optimal_location'][1]:.3f})")
+                    mono_col2.metric("Optimal Price (p*)", f"{res_m['optimal_price']:.3f}")
+                    mono_col3.metric("Maximized Profit (Π*)", f"{res_m['maximized_profit']:.3f}")
+                    
+                    st.markdown(f"- Weighted Average Distance at x* ($\bar{{d}}_{{\rho}}(x^*)$): {res_m['weighted_avg_distance_at_opt_loc']:.4f}")
+                    st.markdown(f"- Total Consumer Mass (M): {res_m['total_consumer_mass']:.4f}")
+                    
+                    profit_cond_term = res_m.get('profit_condition_term', 0)
+                    st.markdown(f"- Profit Condition Term ($\propto \sqrt{{\Pi^*}}$): {profit_cond_term:.3f}")
+                    if res_m.get('solution_validity_check', True):
+                        st.success("Profitability condition (α - γc - γt d̄_ρ(x*) ≥ 0) is met.")
+                    else:
+                        st.warning("Profitability condition (α - γc - γt d̄_ρ(x*) ≥ 0) is NOT met. "
+                                   "This suggests the monopolist might set price at marginal cost (c) or not operate if demand is non-positive at c.")
+
+                if st.session_state.d_bar_landscape_fig:
+                    st.subheader(r"Visualization of $\bar{d}_{\rho}(x)$ Landscape")
+                    st.pyplot(st.session_state.d_bar_landscape_fig)
+                    plt.clf() # Clear the figure after displaying to free memory
 
     else:
         st.info("Click 'Run Simulation' in the sidebar to start.")
