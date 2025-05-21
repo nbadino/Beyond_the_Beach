@@ -57,7 +57,39 @@ class HotellingTwoDimensional:
         self.profit_history = []
         self.last_run_iterations = 0
         self.last_run_time = 0
+
+        # For dynamic entry simulation
+        self.dynamic_simulation_history = [] # Stores snapshots of the market state over periods
     
+    def _initialize_firms(self, n_firms, locations=None, prices=None):
+        """Helper to initialize or re-initialize firm data."""
+        self.n_firms = n_firms
+        if locations is not None:
+            self.locations = np.array(locations)
+        else:
+            self.locations = np.random.uniform(0, 1, (n_firms, 2)) * self.market_shape
+        
+        if prices is not None:
+            self.prices = np.array(prices)
+        else:
+            self.prices = np.ones(n_firms) * self.c * 1.5
+        
+        # Reset histories if firms change
+        self.price_history = []
+        self.location_history = []
+        self.profit_history = []
+
+    def add_firm(self, location, price_guess=None):
+        """Adds a new firm to the market."""
+        new_location = np.array(location).reshape(1, 2)
+        self.locations = np.vstack([self.locations, new_location])
+        
+        new_price = price_guess if price_guess is not None else self.c * 1.5 # Default initial price
+        self.prices = np.append(self.prices, new_price)
+        
+        self.n_firms += 1
+        # Histories should be managed by the dynamic simulation loop
+
     def rho(self, x, y):
         """Population density function based on specified type."""
         if self.rho_type == 'uniform':
@@ -977,3 +1009,346 @@ class HotellingTwoDimensional:
                 )
         
         return d_bar_matrix, x_coords, y_coords
+
+    # ========= DYNAMIC ENTRY SIMULATION METHODS =========
+
+    def _get_expected_profit_for_entrant(self, 
+                                         candidate_entry_location, 
+                                         existing_locations, 
+                                         existing_prices, 
+                                         grid_size_profit_calc, 
+                                         price_eq_max_iter, 
+                                         price_eq_tolerance,
+                                         update_method_price_eq):
+        """
+        Calculates the profit an entrant would expect at candidate_entry_location,
+        after all firms (existing + entrant) reach a new price equilibrium.
+        """
+        num_existing_firms = existing_locations.shape[0]
+        
+        # Create a temporary model state for N+1 firms
+        temp_locations = np.vstack([existing_locations, np.array(candidate_entry_location).reshape(1,2)])
+        # Initial price for entrant: could be c, or average of others, or based on a quick optimization.
+        # For simplicity, let's use a common starting point. find_equilibrium will adjust it.
+        temp_prices_entrant_guess = np.mean(existing_prices) if num_existing_firms > 0 else self.c * 1.5
+        temp_prices = np.append(existing_prices, temp_prices_entrant_guess)
+
+        # Store current model state to restore later
+        original_n_firms, original_locations, original_prices = self.n_firms, self.locations.copy(), self.prices.copy()
+        
+        # Temporarily set the model to the N+1 firm scenario
+        self._initialize_firms(num_existing_firms + 1, temp_locations, temp_prices)
+        
+        # Find price equilibrium for these N+1 firms
+        # Note: find_equilibrium modifies self.prices and self.locations (if optimize_locations=True)
+        # Here, locations are fixed for the price equilibrium stage.
+        eq_results = self.find_equilibrium(
+            max_iterations=price_eq_max_iter,
+            tolerance=price_eq_tolerance,
+            grid_size=grid_size_profit_calc,
+            update_method=update_method_price_eq,
+            verbose=False, # Keep it quiet during this internal optimization
+            optimize_locations=False 
+        )
+        
+        entrant_profit_at_equilibrium = 0
+        if eq_results['converged']:
+            # Profit for the new entrant (which is the last firm, index num_existing_firms)
+            entrant_profit_at_equilibrium = self.profit(num_existing_firms, grid_size_profit_calc)
+        
+        # Restore original model state
+        self._initialize_firms(original_n_firms, original_locations, original_prices)
+        
+        return entrant_profit_at_equilibrium
+
+    def _find_optimal_entry_location_and_profit(self, 
+                                                existing_locations_np, 
+                                                existing_prices_np, 
+                                                grid_size_loc_opt, # Grid for optimizing entry location (can be coarse)
+                                                grid_size_profit_calc, # Grid for profit calculation within equilibrium
+                                                price_eq_max_iter, 
+                                                price_eq_tolerance,
+                                                update_method_price_eq):
+        """
+        Finds the optimal entry location for a new firm and its expected profit.
+        Uses a grid search for location optimization for simplicity and speed.
+        """
+        best_location = None
+        max_expected_profit = -np.inf # Entrant seeks to maximize this
+
+        # Define a grid of potential entry locations
+        loc_x_coords = np.linspace(0, self.market_shape[0], grid_size_loc_opt)
+        loc_y_coords = np.linspace(0, self.market_shape[1], grid_size_loc_opt)
+
+        for lx_candidate in loc_x_coords:
+            for ly_candidate in loc_y_coords:
+                candidate_loc = np.array([lx_candidate, ly_candidate])
+                
+                # Check if candidate_loc is too close to an existing firm (optional, to avoid trivial solutions)
+                # For now, we allow any location.
+                
+                expected_profit = self._get_expected_profit_for_entrant(
+                    candidate_loc, existing_locations_np, existing_prices_np,
+                    grid_size_profit_calc, price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                )
+                
+                if expected_profit > max_expected_profit:
+                    max_expected_profit = expected_profit
+                    best_location = candidate_loc
+        
+        # If no profitable location found (e.g., all profits are negative or zero)
+        if best_location is None and grid_size_loc_opt > 0: # Ensure we actually searched
+             # Fallback: if no location yields positive profit, pick center, profit will be what it is.
+             best_location = np.array([self.market_shape[0]/2, self.market_shape[1]/2])
+             max_expected_profit = self._get_expected_profit_for_entrant(
+                    best_location, existing_locations_np, existing_prices_np,
+                    grid_size_profit_calc, price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                )
+
+        return best_location, max_expected_profit
+
+    def run_dynamic_entry_simulation(self, 
+                                     entry_cost_F, 
+                                     discount_factor_delta, 
+                                     max_total_firms,
+                                     grid_size_loc_opt, # For entrant's location choice
+                                     grid_size_price_eq, # For price equilibrium calculation
+                                     price_eq_max_iter, 
+                                     price_eq_tolerance,
+                                     update_method_price_eq='sequential',
+                                     verbose_dynamic=True):
+        """
+        Runs the dynamic entry simulation.
+        Firms enter sequentially if profitable, then all firms compete on prices.
+        """
+        self.dynamic_simulation_history = []
+        
+        # Initialize with 0 firms in the market for the purpose of the loop
+        # The actual model's n_firms, locations, prices will be updated step-by-step
+        current_locations_market = np.empty((0,2))
+        current_prices_market = np.empty((0,))
+        current_n_firms_market = 0
+
+        for period_num in range(1, max_total_firms * 2 + 1): # Max periods: entry + price for each potential firm
+            
+            # --- Odd Period: Entry Stage ---
+            if period_num % 2 == 1:
+                potential_entrant_idx = current_n_firms_market + 1
+                if verbose_dynamic:
+                    print(f"\n--- Period {period_num} (Entry Stage for Firm {potential_entrant_idx}) ---")
+
+                if current_n_firms_market == 0: # First entrant (Monopolist)
+                    # Use solve_monopoly_case for the first entrant for precision
+                    # Temporarily set n_firms=1 for solve_monopoly_case to work correctly
+                    original_n_firms_temp, original_loc_temp, original_prices_temp = self.n_firms, self.locations.copy(), self.prices.copy()
+                    self._initialize_firms(1) # Set up for monopoly calculation
+                    
+                    mono_results = self.solve_monopoly_case(grid_size=grid_size_price_eq) # Use price_eq grid for consistency
+                    optimal_entry_location = mono_results["optimal_location"]
+                    expected_profit_for_entrant = mono_results["maximized_profit"]
+                    
+                    # Restore original model state before potentially adding the firm
+                    self._initialize_firms(original_n_firms_temp, original_loc_temp, original_prices_temp)
+
+                else: # Subsequent entrants
+                    optimal_entry_location, expected_profit_for_entrant = \
+                        self._find_optimal_entry_location_and_profit(
+                            current_locations_market, current_prices_market,
+                            grid_size_loc_opt, grid_size_price_eq,
+                            price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                        )
+
+                # Entry condition: Present value of profits > Entry Cost
+                present_value_profit = expected_profit_for_entrant / (1 - discount_factor_delta) if (1 - discount_factor_delta) > 1e-9 else float('inf')
+
+                if verbose_dynamic:
+                    print(f"Potential Entrant {potential_entrant_idx}: Optimal entry at {optimal_entry_location}, Expected Profit/period = {expected_profit_for_entrant:.3f}")
+                    print(f"Present Value of Profit = {present_value_profit:.3f}, Entry Cost F = {entry_cost_F:.3f}")
+
+                if present_value_profit > entry_cost_F and current_n_firms_market < max_total_firms :
+                    if verbose_dynamic:
+                        print(f"Firm {potential_entrant_idx} ENTERS the market.")
+                    
+                    current_locations_market = np.vstack([current_locations_market, optimal_entry_location.reshape(1,2)])
+                    # Price for new entrant: use the price that resulted from its profit optimization,
+                    # which is the price it expects to set in the N+1 firm equilibrium.
+                    # This requires a bit more work: _find_optimal_entry_location_and_profit should also return this price.
+                    # For now, let's add a placeholder price, it will be set in price competition stage.
+                    # A better placeholder would be the price from the internal equilibrium calculation.
+                    # Let's refine _get_expected_profit_for_entrant to return the full state.
+                    # For now, simple guess:
+                    entrant_initial_price_guess = self.c * 1.2 
+                    if current_n_firms_market == 0: # Monopoly price
+                         entrant_initial_price_guess = mono_results["optimal_price"]
+
+                    current_prices_market = np.append(current_prices_market, entrant_initial_price_guess)
+                    current_n_firms_market += 1
+                    
+                    self.dynamic_simulation_history.append({
+                        'period': period_num, 'type': 'entry', 
+                        'n_firms': current_n_firms_market, 
+                        'locations': current_locations_market.copy(), 
+                        'prices': current_prices_market.copy(), # Prices before re-equilibration
+                        'message': f"Firm {current_n_firms_market} entered at {optimal_entry_location}. Expected profit/period: {expected_profit_for_entrant:.2f}."
+                    })
+                else:
+                    if verbose_dynamic:
+                        print(f"Firm {potential_entrant_idx} DOES NOT ENTER. (PV Profit <= F or max firms reached)")
+                    self.dynamic_simulation_history.append({
+                        'period': period_num, 'type': 'no_entry', 
+                        'n_firms': current_n_firms_market,
+                        'locations': current_locations_market.copy(), 
+                        'prices': current_prices_market.copy(),
+                        'message': "No new firm enters. Entry process ends."
+                    })
+                    break # End simulation if no new firm enters
+
+            # --- Even Period: Price Competition Stage ---
+            elif period_num % 2 == 0 and current_n_firms_market > 0:
+                if verbose_dynamic:
+                    print(f"\n--- Period {period_num} (Price Competition with {current_n_firms_market} firms) ---")
+
+                # Set up the model for the current market structure
+                self._initialize_firms(current_n_firms_market, current_locations_market, current_prices_market)
+                
+                # Find price equilibrium
+                eq_results = self.find_equilibrium(
+                    max_iterations=price_eq_max_iter,
+                    tolerance=price_eq_tolerance,
+                    grid_size=grid_size_price_eq,
+                    update_method=update_method_price_eq,
+                    verbose=False, # Can be set to True for detailed price convergence logs
+                    optimize_locations=False # Locations are fixed in price competition stage
+                )
+                
+                current_prices_market = self.prices.copy() # Update market prices to equilibrium prices
+                current_profits_market = self.total_profit(grid_size=grid_size_price_eq)
+
+                if verbose_dynamic:
+                    print(f"Price equilibrium reached: Converged={eq_results['converged']}, Iterations={eq_results['iterations']}")
+                    for i in range(current_n_firms_market):
+                        print(f"  Firm {i+1}: Loc={current_locations_market[i]}, Price={current_prices_market[i]:.3f}, Profit={current_profits_market[i]:.3f}")
+                
+                self.dynamic_simulation_history.append({
+                    'period': period_num, 'type': 'price_equilibrium', 
+                    'n_firms': current_n_firms_market, 
+                    'locations': current_locations_market.copy(), 
+                    'prices': current_prices_market.copy(),
+                    'profits': current_profits_market.copy(),
+                    'converged': eq_results['converged'],
+                    'message': f"Price equilibrium calculated for {current_n_firms_market} firms."
+                })
+                
+                # Check for firm exit (if any firm's profit is negative)
+                # As per user clarification, firms do not exit once entered, even if profits are negative.
+                # So, this part is commented out unless specified otherwise.
+                # if np.any(current_profits_market < 0):
+                #     if verbose_dynamic: print("One or more firms have negative profits. (Exit logic not yet implemented)")
+                #     pass # Implement exit logic if needed
+
+        if verbose_dynamic:
+            print("\nDynamic entry simulation finished.")
+        return self.dynamic_simulation_history
+
+    def generate_dynamic_simulation_gif(self, dynamic_history, filename="dynamic_entry.gif", fps=1, 
+                                        viz_grid_size_for_density_plot=20, market_plot_grid_size=50):
+        """
+        Generates a GIF of the dynamic entry simulation.
+        Each frame represents a period from the dynamic_history.
+        """
+        if not dynamic_history:
+            print("No dynamic history to generate GIF.")
+            return None
+
+        frames = []
+        margin_x = 0.1 * self.market_shape[0]
+        margin_y = 0.1 * self.market_shape[1]
+        market_min_x, market_max_x = 0 - margin_x, self.market_shape[0] + margin_x
+        market_min_y, market_max_y = 0 - margin_y, self.market_shape[1] + margin_y
+
+        # Pre-calculate density for background if not uniform (using original model's rho_type)
+        density_Z_background = None
+        if self.rho_type != 'uniform':
+            x_density_bg = np.linspace(0, self.market_shape[0], viz_grid_size_for_density_plot)
+            y_density_bg = np.linspace(0, self.market_shape[1], viz_grid_size_for_density_plot)
+            X_density_bg, Y_density_bg = np.meshgrid(x_density_bg, y_density_bg)
+            density_Z_background = np.zeros_like(X_density_bg)
+            for r_idx in range(viz_grid_size_for_density_plot):
+                for c_idx in range(viz_grid_size_for_density_plot):
+                    density_Z_background[r_idx, c_idx] = self.rho(X_density_bg[r_idx, c_idx], Y_density_bg[c_idx, r_idx]) # Correct indexing for imshow
+
+        num_history_frames = len(dynamic_history)
+        for frame_idx, history_item in enumerate(dynamic_history):
+            fig, ax = plt.subplots(figsize=(8, 7)) # Consistent figure size
+            canvas = FigureCanvas(fig)
+
+            current_locations_frame = history_item['locations']
+            current_prices_frame = history_item['prices']
+            n_firms_frame = history_item['n_firms']
+            period_type = history_item['type']
+            period_num_frame = history_item['period']
+            message = history_item.get('message', '')
+
+            # Background density
+            if density_Z_background is not None:
+                ax.imshow(density_Z_background.T, extent=[0, self.market_shape[0], 0, self.market_shape[1]],
+                          origin='lower', aspect='auto', cmap='viridis', alpha=0.2, interpolation='bilinear')
+
+            # Market segmentation for this state (if firms exist)
+            if n_firms_frame > 0:
+                # Temporarily set model to this state to use its choice_prob
+                _orig_n, _orig_l, _orig_p = self.n_firms, self.locations.copy(), self.prices.copy()
+                self._initialize_firms(n_firms_frame, current_locations_frame, current_prices_frame)
+
+                x_seg = np.linspace(0, self.market_shape[0], market_plot_grid_size)
+                y_seg = np.linspace(0, self.market_shape[1], market_plot_grid_size)
+                X_seg, Y_seg = np.meshgrid(x_seg, y_seg)
+                Z_seg_val = np.zeros_like(X_seg, dtype=int)
+                for r in range(market_plot_grid_size):
+                    for c_val in range(market_plot_grid_size):
+                        consumer_loc_seg = np.array([X_seg[r, c_val], Y_seg[r, c_val]])
+                        probs_seg = self.choice_prob(consumer_loc_seg)
+                        if probs_seg.size > 0: Z_seg_val[r, c_val] = np.argmax(probs_seg)
+                        else: Z_seg_val[r,c_val] = -1 # No firms or error
+
+                seg_colors = plt.cm.get_cmap('tab10', max(1,n_firms_frame)) # Ensure at least 1 color
+                seg_cmap = ListedColormap(seg_colors(np.linspace(0, 1, max(1,n_firms_frame))))
+                ax.imshow(Z_seg_val.T, extent=[0, self.market_shape[0], 0, self.market_shape[1]],
+                          origin='lower', aspect='auto', cmap=seg_cmap, alpha=0.5)
+                
+                self._initialize_firms(_orig_n, _orig_l, _orig_p) # Restore model
+
+            # Plot firms
+            firm_plot_colors = plt.cm.get_cmap('tab10', max(1,n_firms_frame))
+            for i in range(n_firms_frame):
+                ax.scatter(current_locations_frame[i, 0], current_locations_frame[i, 1], s=120, 
+                           color=firm_plot_colors(i), edgecolor='black', zorder=5)
+                ax.text(current_locations_frame[i, 0], current_locations_frame[i, 1] + 0.03 * self.market_shape[1],
+                        f'F{i+1}\nP:{current_prices_frame[i]:.2f}', ha='center', va='bottom', fontsize=7, 
+                        bbox=dict(facecolor='white', alpha=0.6, pad=1, edgecolor='none'), zorder=6)
+            
+            ax.set_xlim(market_min_x, market_max_x)
+            ax.set_ylim(market_min_y, market_max_y)
+            title_str = f"Period {period_num_frame}: {period_type.replace('_',' ').title()} ({n_firms_frame} Firms)"
+            if period_type == 'no_entry': title_str = f"Period {period_num_frame}: No New Entry ({n_firms_frame} Firms)"
+            ax.set_title(title_str, fontsize=10)
+            ax.set_xlabel('x-coordinate', fontsize=9); ax.set_ylabel('y-coordinate', fontsize=9)
+            ax.set_aspect('equal', adjustable='box')
+            
+            # Add message as text on plot
+            fig.text(0.5, 0.01, message, ha='center', va='bottom', fontsize=8, wrap=True)
+            plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust for figtext
+
+            canvas.draw()
+            image_argb = np.frombuffer(canvas.tostring_argb(), dtype='uint8')
+            image_argb = image_argb.reshape(canvas.get_width_height()[::-1] + (4,))
+            frames.append(image_argb[:, :, 1:]) # ARGB -> RGB
+            plt.close(fig)
+
+        if frames:
+            imageio.mimsave(filename, frames, duration=(1000/fps), loop=0)
+            print(f"Dynamic entry GIF saved as {filename}")
+            return filename
+        else:
+            print("No frames generated for dynamic entry GIF.")
+            return None

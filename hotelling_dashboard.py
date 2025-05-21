@@ -220,13 +220,14 @@ def main():
 
         # Create tabs for organizing output
         tab_viz_overview, tab_detailed_props, tab_sensitivity_density, \
-        tab_dynamics_robustness, tab_advanced_analysis, tab_monopoly = st.tabs([ 
+        tab_dynamics_robustness, tab_advanced_analysis, tab_monopoly, tab_dynamic_entry = st.tabs([ 
             "📈 Visualizations & Overview", 
             "📊 Detailed Equilibrium Properties", 
             "🔬 Sensitivity & Density Analysis",
             "⚙️ Dynamics & Robustness",
             "🗺️ Advanced Analysis & Metrics",
-            "👑 Monopoly Analysis" 
+            "👑 Monopoly Analysis",
+            "🚪 Dynamic Entry Simulation"
         ])
 
         with tab_viz_overview:
@@ -897,6 +898,153 @@ def main():
                     st.subheader(r"Visualization of $\bar{d}_{\rho}(x)$ Landscape")
                     st.pyplot(st.session_state.d_bar_landscape_fig)
                     plt.clf() # Clear the figure after displaying to free memory
+            
+            with tab_dynamic_entry:
+                st.header("🚪 Dynamic Entry Simulation")
+                st.write(r"""
+                Simulate sequential firm entry into the market. 
+                In odd periods, a potential entrant decides whether to enter by choosing an optimal location 
+                that maximizes its anticipated profit (given entry cost $F$ and discount factor $\delta$).
+                Anticipated profit is calculated assuming prices will re-equilibrate after its entry.
+                In even periods, all firms in the market compete by setting prices, and locations remain fixed.
+                The simulation stops if no new firm enters or a maximum number of firms is reached.
+                """)
+
+                st.subheader("Dynamic Entry Parameters")
+                de_col1, de_col2, de_col3 = st.columns(3)
+                entry_cost_F_input = de_col1.number_input("Entry Cost (F)", min_value=0.0, value=1.0, step=0.1, key="de_entry_cost_F")
+                discount_factor_delta_input = de_col2.number_input("Discount Factor (δ)", min_value=0.0, max_value=0.99, value=0.9, step=0.01, key="de_discount_delta")
+                max_total_firms_input = de_col3.number_input("Max Potential Firms", min_value=1, max_value=10, value=5, step=1, key="de_max_firms")
+
+                st.subheader("Optimization Parameters for Dynamic Simulation")
+                de_opt_col1, de_opt_col2 = st.columns(2)
+                grid_size_loc_opt_input = de_opt_col1.slider("Grid Size for Entrant Location Choice", 5, 20, 10, key="de_grid_loc_opt", help="Coarser grid for speed during entrant's location optimization.")
+                grid_size_price_eq_input = de_opt_col2.slider("Grid Size for Price Equilibrium Calc.", 10, 50, 20, key="de_grid_price_eq", help="Grid for profit/demand calculation within each price equilibrium stage.")
+                
+                de_iter_col1, de_iter_col2 = st.columns(2)
+                price_eq_max_iter_input = de_iter_col1.slider("Max Iterations for Price Equilibrium", 10, 100, 30, key="de_price_eq_max_iter")
+                price_eq_tolerance_input = de_iter_col2.number_input("Tolerance for Price Equilibrium", min_value=1e-6, max_value=1e-2, value=1e-4, step=1e-5, format="%.0e", key="de_price_eq_tol")
+                
+                update_method_de_input = st.selectbox("Update Method (Price Equilibria)", 
+                                                      options=['sequential', 'simultaneous'], 
+                                                      index=0, key="de_update_method_price_eq")
+
+                if 'dynamic_sim_history' not in st.session_state:
+                    st.session_state.dynamic_sim_history = None
+                if 'dynamic_sim_gif_path' not in st.session_state:
+                    st.session_state.dynamic_sim_gif_path = None
+
+                if st.button("Run Dynamic Entry Simulation", key="run_dynamic_entry_sim_button"):
+                    st.session_state.dynamic_sim_history = None # Clear previous results
+                    st.session_state.dynamic_sim_gif_path = None
+
+                    # Use the main simulation model's parameters (alpha, gamma, t, beta_logit, c, market_shape, d_type, rho_type)
+                    # as the underlying market conditions for the dynamic entry game.
+                    # The HotellingTwoDimensional object itself will be modified (n_firms, locations, prices)
+                    # by the run_dynamic_entry_simulation method.
+                    # We need a fresh model instance or ensure the existing one is correctly reset/configured.
+                    # For simplicity, let's create a new model instance for the dynamic simulation
+                    # based on the sidebar parameters for the underlying market.
+                    
+                    dynamic_model_runner = HotellingTwoDimensional(
+                        n_firms=0, # Start with 0 firms for the dynamic simulation logic
+                        market_shape=market_shape, # From main sidebar
+                        alpha_demand=alpha_demand_input, # From main sidebar
+                        gamma_demand=gamma_demand_input, # From main sidebar
+                        t_transport_cost=t_transport_cost_input, # From main sidebar
+                        beta_logit=beta_logit_input, # From main sidebar
+                        d_type=d_type, # From main sidebar
+                        rho_type=rho_type, # From main sidebar
+                        density_params=density_centers_params # From main sidebar
+                        # c and max_price will use defaults
+                    )
+                    
+                    with st.spinner("Running dynamic entry simulation... This may take some time."):
+                        history = dynamic_model_runner.run_dynamic_entry_simulation(
+                            entry_cost_F=entry_cost_F_input,
+                            discount_factor_delta=discount_factor_delta_input,
+                            max_total_firms=max_total_firms_input,
+                            grid_size_loc_opt=grid_size_loc_opt_input,
+                            grid_size_price_eq=grid_size_price_eq_input,
+                            price_eq_max_iter=price_eq_max_iter_input,
+                            price_eq_tolerance=price_eq_tolerance_input,
+                            update_method_price_eq=update_method_de_input,
+                            verbose_dynamic=True # Can be set to False for cleaner UI
+                        )
+                        st.session_state.dynamic_sim_history = history
+                    
+                    if st.session_state.dynamic_sim_history:
+                        st.success("Dynamic entry simulation complete.")
+                        
+                        # Generate GIF for the dynamic simulation
+                        dynamic_gif_filename = "dynamic_entry_simulation.gif"
+                        dynamic_gif_fps = st.slider("GIF FPS (Dynamic Sim)", 1, 5, 1, key="de_gif_fps") # Separate FPS for this GIF
+                        
+                        with st.spinner("Generating dynamic simulation GIF..."):
+                            # The GIF generation uses the rho_type of the dynamic_model_runner
+                            generated_dynamic_gif_path = dynamic_model_runner.generate_dynamic_simulation_gif(
+                                dynamic_history=st.session_state.dynamic_sim_history,
+                                filename=dynamic_gif_filename,
+                                fps=dynamic_gif_fps 
+                                # viz_grid_size_for_density_plot and market_plot_grid_size use defaults
+                            )
+                        if generated_dynamic_gif_path and os.path.exists(generated_dynamic_gif_path):
+                            st.session_state.dynamic_sim_gif_path = generated_dynamic_gif_path
+                            st.success(f"Dynamic simulation GIF generated: {generated_dynamic_gif_path}")
+                        else:
+                            st.error("Failed to generate dynamic simulation GIF.")
+                            st.session_state.dynamic_sim_gif_path = None
+                    else:
+                        st.error("Dynamic entry simulation did not produce any history.")
+
+                if st.session_state.dynamic_sim_history:
+                    st.subheader("Simulation Log & Results")
+                    final_state = st.session_state.dynamic_sim_history[-1]
+                    st.metric("Final Number of Firms in Market", final_state.get('n_firms', 0))
+
+                    with st.expander("Detailed Simulation Log (Last 10 events)", expanded=False):
+                        for item in st.session_state.dynamic_sim_history[-10:]: # Show last 10 events
+                            st.text(f"Period {item['period']} ({item['type']}): {item.get('message', '')}")
+                            if item['type'] == 'price_equilibrium':
+                                st.json({
+                                    "locations": [loc.tolist() for loc in item['locations']],
+                                    "prices": item['prices'].tolist(),
+                                    "profits": item.get('profits', np.array([])).tolist()
+                                }, expanded=False)
+                    
+                    st.subheader("Final Market Configuration")
+                    if final_state.get('n_firms', 0) > 0:
+                        final_locs = final_state['locations']
+                        final_prices = final_state['prices']
+                        final_profits = final_state.get('profits')
+
+                        for i in range(final_state['n_firms']):
+                            profit_str = f", Profit: {final_profits[i]:.2f}" if final_profits is not None and i < len(final_profits) else ""
+                            st.write(f"Firm {i+1}: Location ({final_locs[i,0]:.2f}, {final_locs[i,1]:.2f}), Price: {final_prices[i]:.2f}{profit_str}")
+                    else:
+                        st.write("No firms remained in the market or simulation ended before entry.")
+
+
+                if st.session_state.dynamic_sim_gif_path and os.path.exists(st.session_state.dynamic_sim_gif_path):
+                    st.subheader("Dynamic Entry Simulation GIF")
+                    try:
+                        with open(st.session_state.dynamic_sim_gif_path, "rb") as f_gif_dyn:
+                            st.image(f_gif_dyn.read(), caption="Dynamic Entry Simulation", use_column_width=True)
+                        with open(st.session_state.dynamic_sim_gif_path, "rb") as file_bytes_dyn:
+                            st.download_button(
+                                label="Download Dynamic Entry GIF",
+                                data=file_bytes_dyn,
+                                file_name=os.path.basename(st.session_state.dynamic_sim_gif_path),
+                                mime="image/gif",
+                                key="download_dynamic_gif_button"
+                            )
+                    except FileNotFoundError:
+                        st.error("Dynamic entry GIF file not found.")
+                        st.session_state.dynamic_sim_gif_path = None
+                elif st.session_state.dynamic_sim_gif_path:
+                     st.warning(f"Previously generated dynamic GIF at {st.session_state.dynamic_sim_gif_path} seems to be missing. Please regenerate.")
+                     st.session_state.dynamic_sim_gif_path = None
+
 
     else:
         st.info("Click 'Run Simulation' in the sidebar to start.")
