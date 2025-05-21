@@ -776,7 +776,7 @@ def main():
 
             with tab_monopoly:
                 st.header("👑 Monopoly Analysis")
-                st.write("""
+                st.write(r"""
                 This section analyzes the optimal location and price for a single firm (monopolist)
                 based on the theoretical model (Propositions \ref{prop:mono_price} and \ref{prop:mono_center} from the paper).
                 The parameters used are those currently set in the sidebar.
