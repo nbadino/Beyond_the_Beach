@@ -763,3 +763,194 @@ class HotellingTwoDimensional:
         else:
             print("No frames generated for GIF.")
             return None
+
+    # ========= MONOPOLY CASE METHODS =========
+
+    def calculate_total_consumer_mass(self, grid_size=30):
+        """Calculates the total consumer mass M = integral rho(s) ds."""
+        x_coords = np.linspace(0, self.market_shape[0], grid_size)
+        y_coords = np.linspace(0, self.market_shape[1], grid_size)
+        dx = self.market_shape[0] / grid_size
+        dy = self.market_shape[1] / grid_size
+        
+        X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
+        consumer_locs = np.vstack([X.ravel(), Y.ravel()]).T # (grid_size*grid_size, 2)
+        
+        rho_values = self.rho(consumer_locs[:, 0], consumer_locs[:, 1]) # (grid_size*grid_size,)
+        total_mass = np.sum(rho_values) * dx * dy
+        return total_mass
+
+    def calculate_weighted_average_distance(self, firm_location_candidate, grid_size=30, total_mass=None):
+        """
+        Calculates d_bar_rho(x1) = (1/M) * integral rho(s) * d(s, x1) ds.
+        firm_location_candidate: np.array, potential location of the monopolist (x,y).
+        total_mass: Pre-calculated M. If None, it will be calculated.
+        """
+        if total_mass is None:
+            total_mass = self.calculate_total_consumer_mass(grid_size)
+        
+        if total_mass == 0:
+            return np.inf # Avoid division by zero if no consumers
+
+        x_coords = np.linspace(0, self.market_shape[0], grid_size)
+        y_coords = np.linspace(0, self.market_shape[1], grid_size)
+        dx = self.market_shape[0] / grid_size
+        dy = self.market_shape[1] / grid_size
+        
+        X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
+        consumer_locs = np.vstack([X.ravel(), Y.ravel()]).T # (grid_size*grid_size, 2)
+        
+        rho_values = self.rho(consumer_locs[:, 0], consumer_locs[:, 1]) # (grid_size*grid_size,)
+        distances = self.d(consumer_locs, firm_location_candidate) # (grid_size*grid_size,)
+        
+        integral_rho_d = np.sum(rho_values * distances) * dx * dy
+        
+        return integral_rho_d / total_mass
+
+    def find_optimal_monopoly_location(self, grid_size=30, initial_guess=None):
+        """
+        Finds the location x1* that minimizes the weighted average distance to consumers.
+        Returns: optimal_location (np.array), min_weighted_avg_dist (float)
+        """
+        total_mass = self.calculate_total_consumer_mass(grid_size)
+        if total_mass == 0:
+            # If no consumers, any location is "optimal" with zero profit.
+            # Return center as a sensible default, distance is undefined or infinite.
+            return np.array([self.market_shape[0]/2, self.market_shape[1]/2]), np.inf
+
+        def objective_function(location_candidate):
+            return self.calculate_weighted_average_distance(location_candidate, grid_size, total_mass)
+
+        bounds = [(0, self.market_shape[0]), (0, self.market_shape[1])]
+        if initial_guess is None:
+            # Start search from the center of the market
+            initial_guess = np.array([self.market_shape[0] / 2, self.market_shape[1] / 2])
+        
+        result = minimize(objective_function, initial_guess, bounds=bounds, method='L-BFGS-B')
+        
+        if result.success:
+            optimal_location = result.x
+            min_weighted_avg_dist = result.fun
+            return optimal_location, min_weighted_avg_dist
+        else:
+            # Fallback or error handling
+            print(f"Monopoly location optimization failed: {result.message}. Using initial guess.")
+            return initial_guess, objective_function(initial_guess)
+
+    def calculate_monopoly_price(self, optimal_weighted_avg_dist):
+        """
+        Calculates the monopoly price p1* = alpha/(2*gamma) + c/2 - t*d_bar_rho(x1*)/2.
+        Assumes optimal_weighted_avg_dist (d_bar_rho(x1*)) is provided.
+        """
+        if self.gamma_demand == 0:
+            # Avoid division by zero; implies perfectly inelastic demand, price is theoretically infinite or max_price.
+            # This case might need special handling based on model interpretation.
+            return self.max_price 
+            
+        price = (self.alpha_demand / (2 * self.gamma_demand)) + \
+                (self.c / 2) - \
+                (self.t_transport_cost * optimal_weighted_avg_dist / 2)
+        
+        # Ensure price is at least marginal cost and not exceeding max_price (if defined)
+        # The paper's condition alpha - gamma*c - gamma*t*d_bar >= 0 ensures p1* >= c.
+        # We should also respect self.max_price as an upper bound.
+        price = np.clip(price, self.c, self.max_price)
+        return price
+
+    def calculate_monopoly_profit_formula(self, optimal_weighted_avg_dist, total_mass):
+        """
+        Calculates monopoly profit using the formula:
+        Pi(x1*) = (M / (4*gamma)) * (alpha - gamma*c - gamma*t*d_bar_rho(x1*))^2
+        """
+        if self.gamma_demand == 0:
+            return 0 # Or handle as infinite if price is infinite and demand is fixed positive
+
+        term_in_parentheses = self.alpha_demand - self.gamma_demand * self.c - \
+                              self.gamma_demand * self.t_transport_cost * optimal_weighted_avg_dist
+        
+        # Profit is non-negative if term_in_parentheses is real.
+        # If term_in_parentheses < 0, it implies demand is negative even at cost c,
+        # which means profit should be 0 (monopolist wouldn't operate).
+        if term_in_parentheses < 0:
+            return 0.0
+            
+        profit = (total_mass / (4 * self.gamma_demand)) * (term_in_parentheses**2)
+        return profit
+
+    def solve_monopoly_case(self, grid_size=30, initial_location_guess=None):
+        """
+        Solves for the optimal monopoly location, price, and profit.
+        Returns a dictionary with results.
+        """
+        if self.n_firms != 1:
+            # This method is intended for the n_firms=1 case.
+            # For simulation purposes, we can still calculate what a monopolist *would* do.
+            print("Warning: solve_monopoly_case called with n_firms != 1. Calculations proceed as if for a monopolist.")
+
+        total_mass_M = self.calculate_total_consumer_mass(grid_size)
+        
+        optimal_loc_x1_star, d_bar_rho_at_x1_star = self.find_optimal_monopoly_location(
+            grid_size, initial_guess=initial_location_guess
+        )
+        
+        monopoly_price_p1_star = self.calculate_monopoly_price(d_bar_rho_at_x1_star)
+        
+        # Verify the condition for p1* >= c and positive demand from paper
+        # alpha - gamma*c - gamma*t*d_bar_rho(x1*) >= 0
+        profit_condition_term = self.alpha_demand - self.gamma_demand * self.c - \
+                                self.gamma_demand * self.t_transport_cost * d_bar_rho_at_x1_star
+        
+        valid_solution = True
+        if profit_condition_term < 0:
+            print("Warning: Monopoly price condition (alpha - gc - gtd_bar >= 0) not met. "
+                  "Optimal price might be 'c' and profit zero if demand is non-positive.")
+            # If condition not met, price is 'c' (if demand still positive) or monopolist doesn't operate (profit 0).
+            # The calculate_monopoly_price clips at 'c'.
+            # The calculate_monopoly_profit_formula handles this by returning 0 profit.
+            valid_solution = False # Indicates parameters might lead to non-operation or corner solution.
+
+        monopoly_profit_pi1_star = self.calculate_monopoly_profit_formula(
+            d_bar_rho_at_x1_star, total_mass_M
+        )
+        
+        # For direct simulation with this monopolist (e.g. visualization)
+        # we can update the model's state if n_firms is indeed 1.
+        if self.n_firms == 1:
+            self.locations[0] = optimal_loc_x1_star
+            self.prices[0] = monopoly_price_p1_star
+
+        return {
+            "optimal_location": optimal_loc_x1_star,
+            "optimal_price": monopoly_price_p1_star,
+            "maximized_profit": monopoly_profit_pi1_star,
+            "weighted_avg_distance_at_opt_loc": d_bar_rho_at_x1_star,
+            "total_consumer_mass": total_mass_M,
+            "profit_condition_term": profit_condition_term, # For diagnostics
+            "solution_validity_check": valid_solution # True if profit_condition_term >=0
+        }
+
+    def get_weighted_average_distance_landscape(self, landscape_grid_size=15, calculation_grid_size=30):
+        """
+        Calculates the weighted average distance d_bar_rho(x) for a firm
+        across a grid of possible locations x.
+        """
+        total_mass = self.calculate_total_consumer_mass(calculation_grid_size)
+        if total_mass == 0:
+            # Return a grid of NaNs or Infs if no consumers
+            return np.full((landscape_grid_size, landscape_grid_size), np.nan), \
+                   np.linspace(0, self.market_shape[0], landscape_grid_size), \
+                   np.linspace(0, self.market_shape[1], landscape_grid_size)
+
+        x_coords = np.linspace(0, self.market_shape[0], landscape_grid_size)
+        y_coords = np.linspace(0, self.market_shape[1], landscape_grid_size)
+        
+        d_bar_matrix = np.zeros((landscape_grid_size, landscape_grid_size))
+        
+        for r, ly in enumerate(y_coords): # Iterate rows (y-coordinates for imshow)
+            for c, lx in enumerate(x_coords): # Iterate columns (x-coordinates for imshow)
+                candidate_loc = np.array([lx, ly])
+                d_bar_matrix[r, c] = self.calculate_weighted_average_distance(
+                    candidate_loc, calculation_grid_size, total_mass
+                )
+        
+        return d_bar_matrix, x_coords, y_coords
