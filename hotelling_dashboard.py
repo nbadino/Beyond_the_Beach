@@ -145,20 +145,21 @@ def main():
     grid_size = st.sidebar.slider("Grid Size (for simulation)", 10, 100, 30, help="Grid size for demand/profit calculation during optimization.")
     update_method_options = ['sequential', 'simultaneous']
     update_method = st.sidebar.selectbox("Update Method", update_method_options, index=0, help="Method for updating prices and locations during equilibrium search.")
-    fix_locations_input = st.sidebar.checkbox("Fissa Posizioni (ottimizza solo prezzi)", value=False, key="fix_locations_cb", help="Se selezionato, le posizioni iniziali delle imprese sono fisse e si ottimizzano solo i prezzi.")
+    # fix_locations_input checkbox is removed. Locations will be fixed by default for price optimization.
     
-    # Pulsante per re-inizializzare le posizioni se sono fisse
-    if fix_locations_input:
-        if st.sidebar.button("Randomizza Posizioni Fisse", key="randomize_fixed_loc_button"):
-            if st.session_state.model is not None:
-                # Re-initialize locations in the existing model object
-                st.session_state.model.locations = np.random.uniform(0, 1, (st.session_state.model.n_firms, 2)) * st.session_state.model.market_shape
-                st.session_state.model.price_history = [] # Clear history as locations changed
-                st.session_state.model.location_history = []
-                st.session_state.model.profit_history = []
-                st.success("Posizioni fisse randomizzate. Esegui nuovamente la simulazione.")
-            else:
-                st.warning("Esegui prima una simulazione per poter randomizzare le posizioni.")
+    # Pulsante per re-inizializzare le posizioni iniziali
+    if st.sidebar.button("Randomizza Posizioni Iniziali", key="randomize_initial_loc_button"):
+        if st.session_state.model is not None:
+            # Re-initialize locations in the existing model object
+            st.session_state.model.locations = np.random.uniform(0, 1, (st.session_state.model.n_firms, 2)) * st.session_state.model.market_shape
+            st.session_state.model.price_history = [] # Clear history as locations changed
+            st.session_state.model.location_history = []
+            st.session_state.model.profit_history = []
+            st.success("Posizioni iniziali randomizzate. Esegui nuovamente la simulazione.")
+        else:
+            # If model doesn't exist yet, we can't set its locations.
+            # The first run of "Run Simulation" will create it with random locations.
+            st.info("Le posizioni saranno generate casualmente al primo avvio della simulazione.")
 
     # ===== Main Panel =====
     if st.sidebar.button("Run Simulation"):
@@ -183,7 +184,7 @@ def main():
                 grid_size=grid_size,
                 update_method=update_method, 
                 verbose=False,
-                optimize_locations=(not fix_locations_input) # Pass the new parameter
+                optimize_locations=False # Locations are fixed for price optimization in this model
             )
 
             # Store results in session state
@@ -467,7 +468,7 @@ def main():
                                     # Use find_equilibrium from the temp_model_sens instance
                                     converged_info_sens = temp_model_sens.find_equilibrium(
                                         max_iterations=max_iter, grid_size=grid_size, verbose=False, update_method=update_method,
-                                        optimize_locations=(not fix_locations_input) # Consider if fixed locations should apply here too
+                                        optimize_locations=False # Sensitivity analysis also with fixed locations
                                     )
 
                                     if converged_info_sens['converged']:
@@ -694,7 +695,7 @@ def main():
                                     sim_res_gs = temp_model_grid_test.find_equilibrium(
                                         max_iterations=max_iter, grid_size=test_gs,       
                                         update_method=update_method, verbose=False,
-                                        optimize_locations=(not fix_locations_input) # And here
+                                        optimize_locations=False # Grid robustness also with fixed locations
                                     )
                                     
                                     total_profit_val = None
