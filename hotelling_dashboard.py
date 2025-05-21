@@ -488,18 +488,18 @@ def main():
                     if results_sensitivity_to_plot['param_values'] and \
                        any(not np.isnan(p) for p in results_sensitivity_to_plot.get('avg_prices', [])):
                         
-                        param_name_label = param_to_sweep.split(' ')[0]
+                        param_name_label_for_plot = param_to_sweep # Use the full name from selectbox options
                         fig_sens, axs_sens = plt.subplots(2, 2, figsize=(12, 10))
-                        fig_sens.suptitle(f"Sensitivity Analysis: Impact of {param_name_label}", fontsize=16)
+                        fig_sens.suptitle(f"Sensitivity Analysis: Impact of {param_name_label_for_plot}", fontsize=16)
 
                         axs_sens[0,0].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['avg_prices'], marker='o')
-                        axs_sens[0,0].set_xlabel(param_name_label); axs_sens[0,0].set_ylabel("Average Price"); axs_sens[0,0].set_title("Average Price")
+                        axs_sens[0,0].set_xlabel(param_name_label_for_plot); axs_sens[0,0].set_ylabel("Average Price"); axs_sens[0,0].set_title("Average Price")
                         axs_sens[0,1].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['avg_profits'], marker='o')
-                        axs_sens[0,1].set_xlabel(param_name_label); axs_sens[0,1].set_ylabel("Average Profit per Firm"); axs_sens[0,1].set_title("Average Profit")
+                        axs_sens[0,1].set_xlabel(param_name_label_for_plot); axs_sens[0,1].set_ylabel("Average Profit per Firm"); axs_sens[0,1].set_title("Average Profit")
                         axs_sens[1,0].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['loc_std_dev_x'], marker='o')
-                        axs_sens[1,0].set_xlabel(param_name_label); axs_sens[1,0].set_ylabel("Std Dev of X-Locations"); axs_sens[1,0].set_title("Location Dispersion (X)")
+                        axs_sens[1,0].set_xlabel(param_name_label_for_plot); axs_sens[1,0].set_ylabel("Std Dev of X-Locations"); axs_sens[1,0].set_title("Location Dispersion (X)")
                         axs_sens[1,1].plot(results_sensitivity_to_plot['param_values'], results_sensitivity_to_plot['loc_std_dev_y'], marker='o')
-                        axs_sens[1,1].set_xlabel(param_name_label); axs_sens[1,1].set_ylabel("Std Dev of Y-Locations"); axs_sens[1,1].set_title("Location Dispersion (Y)")
+                        axs_sens[1,1].set_xlabel(param_name_label_for_plot); axs_sens[1,1].set_ylabel("Std Dev of Y-Locations"); axs_sens[1,1].set_title("Location Dispersion (Y)")
                         
                         plt.tight_layout(rect=[0, 0, 1, 0.96])
                         st.pyplot(fig_sens)
