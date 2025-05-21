@@ -10,44 +10,39 @@ class HotellingTwoDimensional:
     def __init__(self, 
                  n_firms=2, 
                  market_shape=(1, 1), 
-                 beta=2.0, 
-                 eta=2.0, 
-                 A=1.0, 
+                 alpha_demand=10.0, # New: Base demand parameter
+                 gamma_demand=1.0,  # New: Price sensitivity of demand
+                 t_transport_cost=1.0, # New: Transportation cost rate
+                 beta_logit=1.0,    # New: Logit choice sensitivity (formerly beta, but with different role)
                  c=1.0, 
-                 max_price=10.0,
-                 mu=1.0,
+                 max_price=10.0,    # Should be reviewed based on alpha/gamma: p_bar < alpha/gamma
                  d_type='euclidean',
                  rho_type='uniform',
                  density_params=None):
         """
-        Initialize the 2D Hotelling model with parametrized functions.
+        Initialize the 2D Hotelling model with linear demand and logit choice.
         
         Parameters:
         n_firms (int): Number of firms
         market_shape (tuple): Size of the market in x and y dimensions
-        beta (float): Price sensitivity in logit model
-        eta (float): Elasticity of demand (should be > 1)
-        A (float): Scaling factor for demand
-        c (float): Marginal cost
-        max_price (float): Upper bound for prices
-        mu (float): Strong convexity parameter for transport cost
-        d_type (str): Type of distance function ('euclidean', 'manhattan', 'quadratic')
-        rho_type (str): Type of density function ('uniform', 'linear', 'gaussian', 'sine', 'multi_gaussian')
-        density_params (list): Optional. For 'multi_gaussian', a list of dicts,
-                               where each dict defines a Gaussian focus:
-                               [{'center': (cx, cy), 'strength': s, 'sigma': sig}, ...]
-                               `center` is (x,y) coordinates.
-                               `strength` is the amplitude of the Gaussian.
-                               `sigma` is the standard deviation (spread).
+        alpha_demand (float): Intercept of the linear demand function q = alpha - gamma*P.
+        gamma_demand (float): Slope of the linear demand function (price coefficient).
+        t_transport_cost (float): Transportation cost rate.
+        beta_logit (float): Sensitivity parameter in the logit choice model.
+        c (float): Marginal cost.
+        max_price (float): Upper bound for prices.
+        d_type (str): Type of distance function ('euclidean', 'manhattan', 'quadratic').
+        rho_type (str): Type of density function ('uniform', 'linear', 'gaussian', 'sine', 'multi_gaussian').
+        density_params (list): Optional. For 'multi_gaussian', a list of dicts for foci.
         """
         self.n_firms = n_firms
         self.market_shape = market_shape
-        self.beta = beta
-        self.eta = eta
-        self.A = A
+        self.alpha_demand = alpha_demand
+        self.gamma_demand = gamma_demand
+        self.t_transport_cost = t_transport_cost
+        self.beta_logit = beta_logit
         self.c = c
-        self.max_price = max_price
-        self.mu = mu
+        self.max_price = max_price # Ensure this is consistent with alpha/gamma to keep demand positive
         self.d_type = d_type
         self.rho_type = rho_type
         self.density_params = density_params
@@ -115,23 +110,27 @@ class HotellingTwoDimensional:
             return np.sqrt(np.sum(diff**2, axis=axis_sum))  # Default euclidean
     
     def effective_price(self, consumer_loc, firm_idx):
-        """Calculate effective price for a consumer at given location (V2: additive transport cost)."""
+        """Calculate effective price P_i^*(s) = p_i + t * d(s,x_i)."""
         # consumer_loc can be (2,) or (N,2)
         # self.d should handle this and return scalar or (N,)
-        return self.prices[firm_idx] + self.d(consumer_loc, self.locations[firm_idx])
+        return self.prices[firm_idx] + self.t_transport_cost * self.d(consumer_loc, self.locations[firm_idx])
     
     def choice_prob(self, consumer_loc):
-        """Calculate the logit choice probabilities for a consumer or array of consumers."""
+        """Calculate the logit choice probabilities Prob(i|s,p) = exp(-beta*P_i^*(s)) / sum_j exp(-beta*P_j^*(s))."""
         # consumer_loc can be (2,) for a single point, or (N,2) for N points.
 
         if consumer_loc.ndim == 1:  # Single consumer location (2,)
             effective_prices_all_firms = np.array([self.effective_price(consumer_loc, i)
                                                    for i in range(self.n_firms)])
             # effective_prices_all_firms is (n_firms,)
-            logits = -self.beta * effective_prices_all_firms
+            # Using self.beta_logit as per new model
+            logits = -self.beta_logit * effective_prices_all_firms
             max_logit = np.max(logits)  # Scalar for numerical stability
             exp_logits = np.exp(logits - max_logit)  # (n_firms,)
-            return exp_logits / np.sum(exp_logits)  # (n_firms,)
+            sum_exp_logits = np.sum(exp_logits)
+            if sum_exp_logits == 0: # Avoid division by zero if all exp_logits are zero (e.g. very large P_i^*)
+                return np.zeros_like(exp_logits)
+            return exp_logits / sum_exp_logits  # (n_firms,)
 
         elif consumer_loc.ndim == 2:  # Array of consumer locations (N,2)
             N = consumer_loc.shape[0]
@@ -141,40 +140,46 @@ class HotellingTwoDimensional:
                 effective_prices_all_firms[:, i] = self.effective_price(consumer_loc, i)
             
             # effective_prices_all_firms is (N, n_firms)
-            logits = -self.beta * effective_prices_all_firms  # (N, n_firms)
+            # Using self.beta_logit as per new model
+            logits = -self.beta_logit * effective_prices_all_firms  # (N, n_firms)
             max_logit = np.max(logits, axis=1, keepdims=True)  # (N, 1) for numerical stability
             exp_logits = np.exp(logits - max_logit)  # (N, n_firms)
-            return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)  # (N, n_firms)
+            sum_exp_logits = np.sum(exp_logits, axis=1, keepdims=True) # (N, 1)
+            # Avoid division by zero for rows where sum_exp_logits is zero
+            probabilities = np.divide(exp_logits, sum_exp_logits, 
+                                      out=np.zeros_like(exp_logits), 
+                                      where=sum_exp_logits!=0)
+            return probabilities # (N, n_firms)
         else:
             raise ValueError(f"consumer_loc must be of shape (2,) or (N,2), got {consumer_loc.shape}")
     
     def demand_at_location(self, consumer_loc, firm_idx):
-        """Calculate demand from a single location or array of locations."""
+        """Calculate demand from a single location or array of locations,
+           using linear demand q_i(s) = alpha - gamma * P_i^*(s) and logit choice.
+           Demand is rho(s) * q_i(s) * Prob(i|s,p).
+        """
         # eff_price will be scalar if consumer_loc is (2,), or (N,) if consumer_loc is (N,2)
         eff_price = self.effective_price(consumer_loc, firm_idx)
         
-        # Add a small epsilon to prevent issues with eff_price being zero or too small,
-        # ensuring it's always positive before exponentiation.
-        epsilon = 1e-9 
-        stable_eff_price = np.maximum(eff_price, epsilon)
-        
-        price_elasticity = self.A * (stable_eff_price ** (-self.eta)) # scalar or (N,)
+        # Linear demand: q_i(s) = alpha - gamma * P_i^*(s)
+        # Ensure demand is non-negative, as per economic sense (consumers don't supply).
+        # The constraint p_bar < alpha/gamma - t*d should ensure P_i^*(s) < alpha/gamma,
+        # so q_i(s) > 0. If not, clipping at 0 is a practical approach here.
+        quantity_demanded_by_consumer = np.maximum(0, self.alpha_demand - self.gamma_demand * eff_price) # scalar or (N,)
         
         # all_choice_probs will be (n_firms,) or (N, n_firms)
         all_choice_probs = self.choice_prob(consumer_loc)
         
         if consumer_loc.ndim == 1:  # Single consumer_loc (2,)
-            choice_probability = all_choice_probs[firm_idx]  # scalar
-            # rho expects two scalar arguments x, y
+            choice_probability_for_firm_i = all_choice_probs[firm_idx]  # scalar
             rho_val = self.rho(consumer_loc[0], consumer_loc[1])  # scalar
         elif consumer_loc.ndim == 2:  # Array of consumer_locs (N,2)
-            choice_probability = all_choice_probs[:, firm_idx]  # (N,)
-            # rho expects x and y as arrays if consumer_loc is an array of points
+            choice_probability_for_firm_i = all_choice_probs[:, firm_idx]  # (N,)
             rho_val = self.rho(consumer_loc[:, 0], consumer_loc[:, 1])  # (N,)
         else:
             raise ValueError(f"consumer_loc must be of shape (2,) or (N,2), got {consumer_loc.shape}")
             
-        return price_elasticity * choice_probability * rho_val  # scalar or (N,)
+        return rho_val * quantity_demanded_by_consumer * choice_probability_for_firm_i  # scalar or (N,)
     
     def total_demand_grid(self, firm_idx, grid_size=30):
         """Calculate total demand using grid-based numerical integration (vectorized)."""
