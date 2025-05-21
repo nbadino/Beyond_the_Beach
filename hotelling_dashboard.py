@@ -864,11 +864,11 @@ def main():
                     mono_col2.metric("Optimal Price (p*)", f"{res_m['optimal_price']:.3f}")
                     mono_col3.metric("Maximized Profit (Π*)", f"{res_m['maximized_profit']:.3f}")
                     
-                    st.markdown(f"- Weighted Average Distance at x* ($\bar{{d}}_{{\rho}}(x^*)$): {res_m['weighted_avg_distance_at_opt_loc']:.4f}")
+                    st.markdown(rf"- Weighted Average Distance at x* ($\bar{{d}}_{{\rho}}(x^*)$): {res_m['weighted_avg_distance_at_opt_loc']:.4f}")
                     st.markdown(f"- Total Consumer Mass (M): {res_m['total_consumer_mass']:.4f}")
                     
                     profit_cond_term = res_m.get('profit_condition_term', 0)
-                    st.markdown(f"- Profit Condition Term ($\propto \sqrt{{\Pi^*}}$): {profit_cond_term:.3f}")
+                    st.markdown(rf"- Profit Condition Term ($\propto \sqrt{{\Pi^*}}$): {profit_cond_term:.3f}")
                     if res_m.get('solution_validity_check', True):
                         st.success("Profitability condition (α - γc - γt d̄_ρ(x*) ≥ 0) is met.")
                     else:
