@@ -24,8 +24,8 @@ def main():
         st.session_state.landscape_plot_fig = None # Store the figure object
         st.session_state.nash_deviation_output_data = None
         st.session_state.convergence_gif_path = None
-        st.session_state.equilibrium_figures = [] # To store figures of multiple equilibria
-        st.session_state.assumption_robustness_results = None # For the new assumption robustness test
+        # st.session_state.equilibrium_figures = [] # To store figures of multiple equilibria - REMOVED
+        # st.session_state.assumption_robustness_results = None # For the new assumption robustness test - REMOVED
 
     # ===== Sidebar Controls =====
     st.sidebar.header("Simulation Parameters")
@@ -140,13 +140,6 @@ def main():
     update_method_options = ['sequential', 'simultaneous']
     update_method = st.sidebar.selectbox("Update Method", update_method_options, index=0, help="Method for updating prices and locations during equilibrium search.")
     
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Verification Options")
-    run_uniqueness_check = st.sidebar.checkbox("Run Equilibrium Uniqueness Check", value=False, help="Empirically check uniqueness by running simulation from multiple random start points.")
-    uniqueness_attempts = 1
-    if run_uniqueness_check:
-        uniqueness_attempts = st.sidebar.number_input("Number of Uniqueness Attempts", min_value=2, max_value=10, value=3, step=1)
-    
     # ===== Main Panel =====
     if st.sidebar.button("Run Simulation"):
         with st.spinner("Running simulation..."):
@@ -187,8 +180,8 @@ def main():
             st.session_state.landscape_plot_fig = None
             st.session_state.nash_deviation_output_data = None
             st.session_state.convergence_gif_path = None # Reset GIF path on new simulation
-            st.session_state.equilibrium_figures = [] # Reset equilibrium figures
-            st.session_state.assumption_robustness_results = None # Reset assumption robustness results
+            # st.session_state.equilibrium_figures = [] # Reset equilibrium figures - REMOVED
+            # st.session_state.assumption_robustness_results = None # Reset assumption robustness results - REMOVED
 
 
     # Display content if simulation has been run at least once
@@ -202,15 +195,15 @@ def main():
 
 
         # Create tabs for organizing output
-        tab_viz_overview, tab_detailed_props, tab_theory, tab_sensitivity_density, \
-        tab_dynamics_robustness, tab_advanced_analysis, tab_assumption_robustness = st.tabs([
+        tab_viz_overview, tab_detailed_props, tab_sensitivity_density, \
+        tab_dynamics_robustness, tab_advanced_analysis = st.tabs([ # Removed tab_theory and tab_assumption_robustness
             "📈 Visualizations & Overview", 
             "📊 Detailed Equilibrium Properties", 
-            "📝 Theoretical Verification",
+            # "📝 Theoretical Verification", # REMOVED
             "🔬 Sensitivity & Density Analysis",
             "⚙️ Dynamics & Robustness",
-            "🗺️ Advanced Analysis & Metrics",
-            "🛡️ Assumption Robustness Test"
+            "🗺️ Advanced Analysis & Metrics"
+            # "🛡️ Assumption Robustness Test" # REMOVED
         ])
 
         with tab_viz_overview:
@@ -381,227 +374,7 @@ def main():
                 st.pyplot(fig_shares)
                 plt.clf()
 
-
-            with tab_theory:
-                st.header("Theoretical Verification & Assumptions")
-                st.subheader("Equilibrium Existence")
-                if converged:
-                    st.success(f"Equilibrium found in {iterations} iterations ({time_elapsed:.2f}s). Update method: {update_method}") # Corrected update_method display
-                else:
-                    st.error(f"Equilibrium not found after {iterations} iterations ({time_elapsed:.2f}s). Update method: {update_method}") # Corrected update_method display
-
-                st.markdown("---")
-                st.subheader("Select Assumptions to Verify:")
-                verify_col1, verify_col2 = st.columns(2)
-                verify_v1 = verify_col1.checkbox("Verify V1 Assumptions (Original Paper)", value=True, key="verify_v1_checkbox")
-                verify_v2 = verify_col2.checkbox("Verify V2 Assumptions (New Paper Draft)", value=True, key="verify_v2_checkbox")
-
-                assumption_grid_size = 20 # Default value
-                if verify_v1 or verify_v2:
-                    assumption_grid_size = st.slider("Grid Size for Assumption Verification", 10, 50, 20, help="Grid size for numerical integration in assumption checks (e.g., omega_ij).")
-
-                if verify_v1:
-                    st.markdown("---")
-                    st.subheader("Assumption Verification (V1 - Original Paper)")
-                    assumptions_results = model.verify_assumptions(grid_size=assumption_grid_size)
-
-                    # Assumption 1: Regularity
-                    st.markdown("**Assumption 1: Regularity**")
-                ass1_col1, ass1_col2 = st.columns(2)
-                with ass1_col1:
-                    st.write(f"Overall Satisfied: {assumptions_results['assumption1_satisfied']}")
-                
-                # 1.1 Cost function and density
-                st.markdown("___1.1 Cost function continuous & convex, rho log-concave:___")
-                ass1_1_col1, ass1_1_col2 = st.columns(2)
-                with ass1_1_col1:
-                    st.write(f"- Cost function continuous: {'True (by design)'}")
-                    st.write(f"- Cost function convex: {assumptions_results['reg_cost_convex']} (for d_type='{model.d_type}')")
-                with ass1_1_col2:
-                    st.warning("Log-concavity of rho(s) is stated in paper but not automatically checked by this model's `verify_assumptions` function.")
-
-                # 1.2 Compact strategy spaces
-                st.markdown("___1.2 Strategy spaces compact:___")
-                st.write(f"- {'True (by design)'}")
-                
-                # 1.3 Elasticity eta > 1
-                st.markdown("___1.3 Elasticity eta > 1:___")
-                ass1_3_col1, ass1_3_col2 = st.columns(2)
-                with ass1_3_col1:
-                    st.write(f"- Condition (eta > 1): {assumptions_results['reg_elasticity']}")
-                with ass1_3_col2:
-                    st.write(f"Actual eta: {model.eta}")
-
-                st.markdown("---")
-                # Assumption 2: Uniqueness
-                st.markdown("**Assumption 2: Uniqueness**")
-                ass2_col1, ass2_col2 = st.columns(2)
-                with ass2_col1:
-                    st.write(f"Overall Satisfied: {assumptions_results['assumption2_satisfied']}")
-
-                # 2.1 d(s, x_i) mu-strongly convex
-                st.markdown("___2.1 d(s, x_i) is mu-strongly convex:___")
-                ass2_1_col1, ass2_1_col2 = st.columns(2)
-                with ass2_1_col1:
-                    st.write(f"- Condition: {assumptions_results['uniq_strongly_convex']} (for d_type='{model.d_type}')")
-                with ass2_1_col2:
-                    if model.d_type == 'quadratic':
-                        st.write(f"(mu = {model.mu}, typically 2 for quadratic distance)")
-                    else:
-                        st.write(f"(mu = {model.mu}, ensure this matches d_type properties)")
-
-
-                # 2.2 Elasticity condition
-                st.markdown(r"___2.2 Elasticity condition ($\eta > 1 + \beta \frac{\sum_{j \neq i} \omega_{ij}}{\omega_{ii}} + \frac{\beta^2}{\mu}$):___")
-                ass2_2_col1, ass2_2_col2, ass2_2_col3 = st.columns(3)
-                with ass2_2_col1:
-                    st.write(f"- Condition satisfied: {assumptions_results['uniq_elasticity']}")
-                with ass2_2_col2:
-                    st.write(f"Actual eta: {model.eta:.3f}")
-                with ass2_2_col3:
-                    st.write(f"Required eta > {assumptions_results['min_eta_required']:.3f}")
-                st.caption(f"(Using max_omega_ratio: {assumptions_results['max_omega_ratio']:.3f}, beta: {model.beta:.2f}, mu: {model.mu:.2f})")
-
-
-                # 2.3 Beta condition
-                st.markdown(r"___2.3 Beta condition ($\beta \bar{d} < 1$):___")
-                max_d = model.max_transport_cost()
-                beta_d_bar = model.beta * max_d
-                ass2_3_col1, ass2_3_col2, ass2_3_col3 = st.columns(3)
-                with ass2_3_col1:
-                    st.write(f"- Condition satisfied: {assumptions_results['uniq_beta']}")
-                with ass2_3_col2:
-                    st.write(f"Actual beta * d_bar: {beta_d_bar:.3f}")
-                with ass2_3_col3:
-                    st.write(f"(beta: {model.beta:.2f}, d_bar: {max_d:.3f})")
-                
-                if verify_v2:
-                    st.markdown("---")
-                    st.subheader("Assumption Verification (V2 - New Paper Draft)")
-                    assumptions_results_v2 = model.verify_assumptions_v2(grid_size=assumption_grid_size)
-
-                    # V2 Assumption 1: Regularity
-                    st.markdown("**Assumption 1 (V2): Regularity**")
-                ass1_v2_col1, ass1_v2_col2 = st.columns(2)
-                with ass1_v2_col1:
-                    st.write(f"Overall Satisfied: {assumptions_results_v2['assumption1_v2_satisfied']}")
-                
-                st.markdown("___1.1 Cost continuous & convex, rho log-concave:___")
-                ass1_1_v2_col1, ass1_1_v2_col2 = st.columns(2)
-                with ass1_1_v2_col1:
-                    st.write(f"- Cost continuous: {'True (by design)'}")
-                    st.write(f"- Cost convex: {assumptions_results_v2['reg_cost_convex_v2']} (for d_type='{model.d_type}')")
-                with ass1_1_v2_col2:
-                    st.warning("Log-concavity of rho(s) is stated in paper but not automatically checked.")
-
-                st.markdown("___1.2 Strategy spaces compact:___")
-                st.write(f"- {'True (by design)'}")
-                
-                st.markdown("___1.3 Elasticity eta > 1:___")
-                ass1_3_v2_col1, ass1_3_v2_col2 = st.columns(2)
-                with ass1_3_v2_col1:
-                    st.write(f"- Condition (eta > 1): {assumptions_results_v2['reg_elasticity_v2']}")
-                with ass1_3_v2_col2:
-                    st.write(f"Actual eta: {model.eta}")
-
-                st.markdown("---")
-                # V2 Assumption 2: Uniqueness
-                st.markdown("**Assumption 2 (V2): Uniqueness**")
-                ass2_v2_col1, ass2_v2_col2 = st.columns(2)
-                with ass2_v2_col1:
-                    st.write(f"Overall Satisfied: {assumptions_results_v2['assumption2_v2_satisfied']}")
-
-                st.markdown("___2.1 d(s, x_i) is mu-strongly convex:___")
-                ass2_1_v2_col1, ass2_1_v2_col2 = st.columns(2)
-                with ass2_1_v2_col1:
-                    st.write(f"- Condition: {assumptions_results_v2['uniq_strongly_convex_v2']} (for d_type='{model.d_type}')")
-                with ass2_1_v2_col2:
-                    effective_mu_v2_display = 2.0 if model.d_type == 'quadratic' else model.mu
-                    st.write(f"(mu = {effective_mu_v2_display}, typically 2 for quadratic)")
-
-                st.markdown(r"___2.2 Elasticity condition ($\eta > 1 + \beta \max_i \frac{\sum_{j \neq i} \omega_{ij}}{\omega_{ii}} + \frac{\beta^2}{\mu}$):___")
-                ass2_2_v2_col1, ass2_2_v2_col2, ass2_2_v2_col3 = st.columns(3)
-                with ass2_2_v2_col1:
-                    st.write(f"- Condition satisfied: {assumptions_results_v2['uniq_elasticity_v2']}")
-                with ass2_2_v2_col2:
-                    st.write(f"Actual eta: {model.eta:.3f}")
-                with ass2_2_v2_col3:
-                    st.write(f"Required eta > {assumptions_results_v2['min_eta_required_v2']:.3f}")
-                
-                st.markdown(r"___2.3 Beta condition ($\beta^2 \bar{d} < \mu (\eta - 1)$):___")
-                ass2_3_v2_col1, ass2_3_v2_col2, ass2_3_v2_col3 = st.columns(3)
-                with ass2_3_v2_col1:
-                    st.write(f"- Condition satisfied: {assumptions_results_v2['uniq_beta_v2']}")
-                with ass2_3_v2_col2:
-                    st.write(f"beta^2*d_bar = {assumptions_results_v2['uniq_beta_v2_lhs_val']:.3f}")
-                with ass2_3_v2_col3:
-                    st.write(f"mu*(eta-1) = {assumptions_results_v2['uniq_beta_v2_rhs_val']:.3f}")
-
-                # Empirical Uniqueness Check (remains common for both assumption sets)
-                if run_uniqueness_check:
-                    st.markdown("---")
-                    st.subheader("Empirical Equilibrium Uniqueness Test")
-                    with st.spinner(f"Running uniqueness check with {uniqueness_attempts} attempts..."):
-                        # It's important that check_equilibrium_uniqueness uses appropriate grid_size for its internal find_equilibrium calls.
-                        # The model's check_equilibrium_uniqueness has a grid_size parameter.
-                        uniqueness_results = model.check_equilibrium_uniqueness(
-                            n_attempts=uniqueness_attempts, 
-                            max_iterations=max_iter, # Use same max_iter as main sim for consistency
-                            tolerance=1e-4, # Standard tolerance
-                            grid_size=grid_size, # Use main simulation grid_size
-                            verbose=False # Keep dashboard clean
-                        )
-                    st.write(f"- Empirically Unique: {uniqueness_results['unique']}")
-                    st.write(f"- Number of distinct equilibria found: {uniqueness_results['n_equilibria_found']}")
-                    if uniqueness_results['n_equilibria_found'] > 0 :
-                        st.write(f"- Max price difference between equilibria: {uniqueness_results['max_price_diff']:.4f}")
-                        st.write(f"- Max location difference between equilibria: {uniqueness_results['max_location_diff']:.4f}")
-                    if uniqueness_results.get("reason"):
-                         st.warning(f"Note: {uniqueness_results['reason']}")
-
-                    # Display visualizations for multiple equilibria if found
-                    st.session_state.equilibrium_figures = [] # Clear previous figures
-                    if not uniqueness_results['unique'] and uniqueness_results['n_equilibria_found'] > 1:
-                        st.subheader(f"Visualizations of {uniqueness_results['n_equilibria_found']} Distinct Equilibria Found")
-                        
-                        # Use the main simulation's grid_size for these visualizations
-                        # grid_size is available from the sidebar controls / main simulation parameters
-                        
-                        for i_eq, eq_data in enumerate(uniqueness_results['equilibria']): # Renamed loop variable
-                            st.markdown(f"**Equilibrium {i_eq+1}**")
-                            # Create a temporary model instance to visualize this specific equilibrium
-                            # Use parameters from the main model (st.session_state.model)
-                            main_sim_model_for_eq_viz = st.session_state.model # Renamed for clarity
-                            temp_eq_model = HotellingTwoDimensional(
-                                n_firms=main_sim_model_for_eq_viz.n_firms, 
-                                market_shape=main_sim_model_for_eq_viz.market_shape,
-                                beta=main_sim_model_for_eq_viz.beta,
-                                eta=main_sim_model_for_eq_viz.eta,
-                                A=main_sim_model_for_eq_viz.A,
-                                c=main_sim_model_for_eq_viz.c,
-                                max_price=main_sim_model_for_eq_viz.max_price,
-                                mu=main_sim_model_for_eq_viz.mu,
-                                d_type=main_sim_model_for_eq_viz.d_type,
-                                rho_type=main_sim_model_for_eq_viz.rho_type,
-                                density_params=main_sim_model_for_eq_viz.density_params
-                            )
-                            # Set locations and prices for this specific equilibrium
-                            temp_eq_model.locations = eq_data['locations']
-                            temp_eq_model.prices = eq_data['prices']
-                            
-                            # Generate and display the plot using the main simulation's grid_size
-                            fig_eq_viz = temp_eq_model.visualize( # Renamed figure variable
-                                show_segmentation=True, 
-                                show_density=True, 
-                                grid_size=grid_size # Using main simulation grid_size
-                            )
-                            st.session_state.equilibrium_figures.append(fig_eq_viz) 
-                            st.pyplot(fig_eq_viz)
-                            plt.close(fig_eq_viz) # Close the figure to free memory
-                    elif uniqueness_results['unique'] and uniqueness_results['n_equilibria_found'] >= 1 :
-                         st.success("A single, unique equilibrium was consistently found.")
-                    elif uniqueness_results['n_equilibria_found'] == 0:
-                         st.warning("No equilibria were found during the uniqueness check.")
+            # THEORETICAL VERIFICATION TAB REMOVED
 
             with tab_sensitivity_density:
                 st.header("Sensitivity Analysis & Population Density Effects")
@@ -964,219 +737,7 @@ def main():
                 else:
                     st.info("Run a simulation that converges to an equilibrium to perform profit landscape analysis.")
 
-            with tab_assumption_robustness:
-                st.header("🛡️ Assumption Robustness Test")
-                st.write("""
-                This section allows you to test the model's equilibrium uniqueness under various parameter combinations.
-                It checks both theoretical uniqueness assumptions and empirical uniqueness by running multiple simulations.
-                Be aware that this can be computationally intensive.
-                """)
-
-                st.subheader("Parameters for Robustness Test")
-
-                # Get default values from the main simulation for guidance
-                main_model = st.session_state.model
-                default_n_firms_main = main_model.n_firms if main_model else 2
-                default_beta_main = main_model.beta if main_model else 0.5
-                default_eta_main = main_model.eta if main_model else 3.0
-
-                n_firms_values_str = st.text_input(
-                    "Number of Firms (comma-separated list, e.g., 2,3):",
-                    value=f"{default_n_firms_main}",
-                    key="robust_n_firms_values"
-                )
-
-                st.markdown("---")
-                st.markdown("**Beta (price sensitivity) Range:**")
-                beta_col1, beta_col2, beta_col3 = st.columns(3)
-                beta_min_robust = beta_col1.number_input("Min Beta", value=max(0.1, default_beta_main * 0.5), step=0.1, key="robust_beta_min")
-                beta_max_robust = beta_col2.number_input("Max Beta", value=default_beta_main * 1.5, step=0.1, key="robust_beta_max")
-                beta_steps_robust = beta_col3.number_input("Beta Steps", min_value=2, max_value=10, value=3, step=1, key="robust_beta_steps")
-
-                st.markdown("---")
-                st.markdown("**Eta (elasticity) Range:**")
-                eta_col1, eta_col2, eta_col3 = st.columns(3)
-                eta_min_robust = eta_col1.number_input("Min Eta", value=max(1.1, default_eta_main * 0.8), step=0.1, key="robust_eta_min") # Eta must be > 1
-                eta_max_robust = eta_col2.number_input("Max Eta", value=default_eta_main * 1.2, step=0.1, key="robust_eta_max")
-                eta_steps_robust = eta_col3.number_input("Eta Steps", min_value=2, max_value=10, value=3, step=1, key="robust_eta_steps")
-                
-                st.markdown("---")
-                d_types_to_test = st.multiselect(
-                    "Distance Types (d_type) to test:",
-                    options=["euclidean", "manhattan", "quadratic"],
-                    default=["quadratic", "euclidean"], # Default to a couple for testing
-                    key="robust_d_types"
-                )
-
-                # Simulation parameters for these tests
-                robust_test_col1, robust_test_col2, robust_test_col3 = st.columns(3)
-                robust_uniqueness_attempts = robust_test_col1.number_input(
-                    "Uniqueness Attempts per Test Case", min_value=1, max_value=10, value=2, step=1, 
-                    key="robust_uniqueness_attempts",
-                    help="Number of random starts for empirical uniqueness check in each test case."
-                )
-                robust_sim_grid_size = robust_test_col2.number_input(
-                    "Simulation Grid Size for Tests", min_value=10, max_value=50, value=20, step=5, 
-                    key="robust_sim_grid_size",
-                    help="Grid size for find_equilibrium within each test case."
-                )
-                robust_assumption_grid_size = robust_test_col3.number_input(
-                    "Assumption Check Grid Size for Tests", min_value=10, max_value=50, value=15, step=5, 
-                    key="robust_assumption_grid_size",
-                    help="Grid size for verify_assumptions (e.g., omega_ij calculation) within each test case."
-                )
-                # robust_max_iter = st.slider("Max Iterations for each test simulation", 10, 100, 30, key="robust_max_iter_slider") # This was already here.
-
-                st.markdown("---")
-                st.markdown("**Select Assumptions to Include in Robustness Test:**")
-                robust_verify_col1, robust_verify_col2 = st.columns(2)
-                robust_include_v1 = robust_verify_col1.checkbox("Include V1 Assumptions", value=True, key="robust_include_v1_checkbox")
-                robust_include_v2 = robust_verify_col2.checkbox("Include V2 Assumptions", value=True, key="robust_include_v2_checkbox")
-                robust_max_iter = st.slider("Max Iterations for each test simulation", 10, 100, 30, key="robust_max_iter_slider") # Moved here for better flow
-
-
-                if st.button("Run Assumption Robustness Test", key="run_assumption_robustness_button"):
-                    try:
-                        n_firms_vals = [int(n.strip()) for n in n_firms_values_str.split(',') if n.strip() and int(n.strip()) >=2] # Firms must be >= 2
-                        
-                        if beta_min_robust >= beta_max_robust:
-                            st.error("Min Beta must be less than Max Beta.")
-                            return # Exit if invalid range
-                        if eta_min_robust >= eta_max_robust:
-                            st.error("Min Eta must be less than Max Eta.")
-                            return # Exit if invalid range
-                        if eta_min_robust <= 1.0: # Model constraint
-                            st.error("Min Eta must be greater than 1.0.")
-                            return
-
-                        beta_vals = np.linspace(beta_min_robust, beta_max_robust, int(beta_steps_robust))
-                        eta_vals = np.linspace(eta_min_robust, eta_max_robust, int(eta_steps_robust))
-                        
-                        if not n_firms_vals:
-                            st.error("Please provide at least one valid number of firms (>=2).")
-                        elif not d_types_to_test:
-                            st.error("Please select at least one Distance Type.")
-                        else:
-                            import itertools # For creating parameter combinations
-                            # Add n_firms_vals to the product
-                            param_combinations = list(itertools.product(n_firms_vals, beta_vals, eta_vals, d_types_to_test))
-                            num_combinations = len(param_combinations)
-                            st.info(f"Starting robustness test for {num_combinations} parameter combinations...")
-                            
-                            progress_bar = st.progress(0)
-                            status_text = st.empty()
-
-                            results_list = []
-                            
-                            # Use main model's other parameters as baseline, but n_firms will be from the loop
-                            base_params_for_robustness = { # Renamed to avoid conflict
-                                # "n_firms" will be set in the loop
-                                "market_shape": main_model.market_shape if main_model else (1,1),
-                                "A": main_model.A if main_model else 1.0,
-                                "c": main_model.c if main_model else 1.0,
-                                "max_price": main_model.max_price if main_model else 10.0,
-                                "mu": main_model.mu if main_model else 1.0, 
-                                "rho_type": main_model.rho_type if main_model else 'uniform', 
-                                "density_params": main_model.density_params if main_model and main_model.rho_type == 'multi_gaussian' else None
-                            }
-
-                            for i, (n_firms_test, beta_test, eta_test, d_type_test) in enumerate(param_combinations):
-                                status_text.text(f"Testing combination {i+1}/{num_combinations}: Firms={n_firms_test}, Beta={beta_test:.2f}, Eta={eta_test:.2f}, d_type='{d_type_test}'")
-                                
-                                current_mu_robust = base_params_for_robustness["mu"] # Renamed
-                                if d_type_test == 'quadratic':
-                                     current_mu_robust = 2.0 # Typically mu=2 for quadratic
-                                
-                                test_model = HotellingTwoDimensional(
-                                    n_firms=n_firms_test, # Use n_firms from the current combination
-                                    market_shape=base_params_for_robustness["market_shape"],
-                                    beta=beta_test,
-                                    eta=eta_test,
-                                    A=base_params_for_robustness["A"],
-                                    c=base_params_for_robustness["c"],
-                                    max_price=base_params_for_robustness["max_price"],
-                                    mu=current_mu_robust, 
-                                    d_type=d_type_test,
-                                    rho_type=base_params_for_robustness["rho_type"],
-                                    density_params=base_params_for_robustness["density_params"]
-                                )
-                                
-                                # 1. Verify theoretical assumptions (conditionally)
-                                assumptions_v1_data = None
-                                if robust_include_v1:
-                                    assumptions_v1_data = test_model.verify_assumptions(grid_size=robust_assumption_grid_size)
-                                
-                                assumptions_v2_data = None
-                                if robust_include_v2:
-                                    assumptions_v2_data = test_model.verify_assumptions_v2(grid_size=robust_assumption_grid_size)
-                                
-                                # 2. Check empirical uniqueness
-                                # Ensure find_equilibrium is called within check_equilibrium_uniqueness
-                                uniqueness = test_model.check_equilibrium_uniqueness(
-                                    n_attempts=robust_uniqueness_attempts,
-                                    max_iterations=robust_max_iter, # Use the specific max_iter for these tests
-                                    tolerance=1e-4, # Standard tolerance
-                                    grid_size=robust_sim_grid_size, # Simulation grid for these tests
-                                    verbose=False
-                                )
-                                
-                                current_result = {
-                                    "N Firms": n_firms_test,
-                                    "Beta": f"{beta_test:.3f}",
-                                    "Eta": f"{eta_test:.3f}",
-                                    "d_type": d_type_test
-                                }
-                                
-                                if robust_include_v1 and assumptions_v1_data:
-                                    current_result["Ass.1 V1"] = assumptions_v1_data['assumption1_satisfied']
-                                    current_result["Ass.2 V1"] = assumptions_v1_data['assumption2_satisfied']
-                                    current_result["EtaReq V1"] = f"{assumptions_v1_data.get('min_eta_required', 'N/A'):.2f}"
-                                    current_result["B*d<1 V1"] = assumptions_v1_data.get('uniq_beta', 'N/A')
-                                
-                                if robust_include_v2 and assumptions_v2_data:
-                                    current_result["Ass.1 V2"] = assumptions_v2_data['assumption1_v2_satisfied']
-                                    current_result["Ass.2 V2"] = assumptions_v2_data['assumption2_v2_satisfied']
-                                    current_result["EtaReq V2"] = f"{assumptions_v2_data.get('min_eta_required_v2', 'N/A'):.2f}"
-                                    current_result["B2*d<mu(e-1) V2"] = assumptions_v2_data.get('uniq_beta_v2', 'N/A')
-                                    
-                                current_result.update({
-                                    "Emp. Unique": uniqueness['unique'],
-                                    "Conv. Attempts": uniqueness['n_equilibria_found'],
-                                    "Reason (Uniq.)": uniqueness.get('reason', '')
-                                })
-                                results_list.append(current_result)
-                                progress_bar.progress((i + 1) / num_combinations)
-                            
-                            status_text.success(f"Robustness test complete for {num_combinations} combinations.")
-                            st.session_state.assumption_robustness_results = results_list
-                            
-                    except ValueError as ve_robust: # Catch specific ValueError
-                        st.error(f"Invalid input: {str(ve_robust)}. Please check parameter ranges and lists.")
-                    except Exception as e_robust:
-                        st.error(f"An error occurred during the assumption robustness test: {str(e_robust)}")
-                        st.exception(e_robust) # Shows full traceback in console for debugging
-                        st.session_state.assumption_robustness_results = None
-
-                # Display results if they exist
-                if st.session_state.assumption_robustness_results:
-                    st.subheader("Assumption Robustness Test Results")
-                    # Convert list of dicts to DataFrame for better display
-                    import pandas as pd
-                    df_results = pd.DataFrame(st.session_state.assumption_robustness_results)
-                    st.dataframe(df_results)
-
-                    # Provide download for CSV
-                    csv = df_results.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="Download Results as CSV",
-                        data=csv,
-                        file_name="assumption_robustness_test_results.csv",
-                        mime="text/csv",
-                        key="download_robustness_csv"
-                    )
-                elif st.session_state.assumption_robustness_results == []:
-                    st.info("No results from the last assumption robustness test (perhaps no valid combinations were run).")
-
+            # ASSUMPTION ROBUSTNESS TAB REMOVED
 
     else:
         st.info("Click 'Run Simulation' in the sidebar to start.")
