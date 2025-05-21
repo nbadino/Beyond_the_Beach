@@ -145,7 +145,21 @@ def main():
     grid_size = st.sidebar.slider("Grid Size (for simulation)", 10, 100, 30, help="Grid size for demand/profit calculation during optimization.")
     update_method_options = ['sequential', 'simultaneous']
     update_method = st.sidebar.selectbox("Update Method", update_method_options, index=0, help="Method for updating prices and locations during equilibrium search.")
+    fix_locations_input = st.sidebar.checkbox("Fissa Posizioni (ottimizza solo prezzi)", value=False, key="fix_locations_cb", help="Se selezionato, le posizioni iniziali delle imprese sono fisse e si ottimizzano solo i prezzi.")
     
+    # Pulsante per re-inizializzare le posizioni se sono fisse
+    if fix_locations_input:
+        if st.sidebar.button("Randomizza Posizioni Fisse", key="randomize_fixed_loc_button"):
+            if st.session_state.model is not None:
+                # Re-initialize locations in the existing model object
+                st.session_state.model.locations = np.random.uniform(0, 1, (st.session_state.model.n_firms, 2)) * st.session_state.model.market_shape
+                st.session_state.model.price_history = [] # Clear history as locations changed
+                st.session_state.model.location_history = []
+                st.session_state.model.profit_history = []
+                st.success("Posizioni fisse randomizzate. Esegui nuovamente la simulazione.")
+            else:
+                st.warning("Esegui prima una simulazione per poter randomizzare le posizioni.")
+
     # ===== Main Panel =====
     if st.sidebar.button("Run Simulation"):
         with st.spinner("Running simulation..."):
@@ -164,11 +178,12 @@ def main():
             )
             
             # Run simulation
-            sim_results = temp_model_obj.find_equilibrium( # Use a temporary variable name
+            sim_results = temp_model_obj.find_equilibrium( 
                 max_iterations=max_iter,
                 grid_size=grid_size,
-                update_method=update_method, # Pass the selected update method
-                verbose=False
+                update_method=update_method, 
+                verbose=False,
+                optimize_locations=(not fix_locations_input) # Pass the new parameter
             )
 
             # Store results in session state
@@ -451,7 +466,8 @@ def main():
                                     temp_model_sens = HotellingTwoDimensional(**current_params)
                                     # Use find_equilibrium from the temp_model_sens instance
                                     converged_info_sens = temp_model_sens.find_equilibrium(
-                                        max_iterations=max_iter, grid_size=grid_size, verbose=False, update_method=update_method
+                                        max_iterations=max_iter, grid_size=grid_size, verbose=False, update_method=update_method,
+                                        optimize_locations=(not fix_locations_input) # Consider if fixed locations should apply here too
                                     )
 
                                     if converged_info_sens['converged']:
@@ -677,7 +693,8 @@ def main():
                                     
                                     sim_res_gs = temp_model_grid_test.find_equilibrium(
                                         max_iterations=max_iter, grid_size=test_gs,       
-                                        update_method=update_method, verbose=False
+                                        update_method=update_method, verbose=False,
+                                        optimize_locations=(not fix_locations_input) # And here
                                     )
                                     
                                     total_profit_val = None

@@ -256,7 +256,7 @@ class HotellingTwoDimensional:
         return result.success
     
     def find_equilibrium(self, max_iterations=100, tolerance=1e-4, grid_size=30, 
-                        update_method='sequential', verbose=True):
+                        update_method='sequential', verbose=True, optimize_locations=True):
         """
         Find Nash equilibrium by iterative best response.
         
@@ -266,6 +266,7 @@ class HotellingTwoDimensional:
         grid_size (int): Grid size for numerical integration
         update_method (str): 'sequential' or 'simultaneous' updates
         verbose (bool): Whether to print progress
+        optimize_locations (bool): Whether to optimize firm locations. If False, only prices are optimized.
         
         Returns:
         dict: {'converged': bool, 'iterations': int, 'time_elapsed': float}
@@ -284,49 +285,71 @@ class HotellingTwoDimensional:
             old_locations = self.locations.copy()
             
             if update_method == 'sequential':
-                # Sequential updates (price then location for each firm)
+                # Sequential updates
                 for i in range(self.n_firms):
-                    self.update_price(i, grid_size)
-                    self.update_location(i, grid_size)
+                    self.update_price(i, grid_size) # Always update price
+                    if optimize_locations:
+                        self.update_location(i, grid_size)
             elif update_method == 'simultaneous':
-                # Simultaneous updates for all firms
+                # Simultaneous updates
                 new_prices = np.zeros_like(self.prices)
-                new_locations = np.zeros_like(self.locations)
-                
-                # Calculate new prices and locations
+                new_locations = self.locations.copy() # Start with current locations
+
+                # Calculate new prices
                 for i in range(self.n_firms):
-                    # Save old price and find best response
-                    old_price = self.prices[i]
-                    self.update_price(i, grid_size)
-                    new_prices[i] = self.prices[i]
-                    self.prices[i] = old_price  # Restore
-                    
-                    # Save old location and find best response
-                    old_location = self.locations[i].copy()
-                    self.update_location(i, grid_size)
-                    new_locations[i] = self.locations[i].copy()
-                    self.locations[i] = old_location  # Restore
+                    old_price_sim = self.prices[i] # Store current price for this firm
+                    self.update_price(i, grid_size) # Find best response price
+                    new_prices[i] = self.prices[i] # Store the new best response price
+                    self.prices[i] = old_price_sim # Restore original price for next firm's calculation
+                
+                if optimize_locations:
+                    temp_new_locations = np.zeros_like(self.locations)
+                    for i in range(self.n_firms):
+                        # For location optimization, use the new_prices just calculated,
+                        # as firms would anticipate these if prices and locations were set simultaneously.
+                        # This requires temporarily setting self.prices to new_prices for the scope of location update.
+                        original_prices_for_loc_opt = self.prices.copy()
+                        self.prices = new_prices # Temporarily set new prices for location optimization
+
+                        old_location_sim = self.locations[i].copy()
+                        self.update_location(i, grid_size) # Find best response location given new prices
+                        temp_new_locations[i] = self.locations[i].copy()
+                        self.locations[i] = old_location_sim # Restore original location
+
+                        self.prices = original_prices_for_loc_opt # Restore original prices array structure
+                    new_locations = temp_new_locations
                 
                 # Update all at once
                 self.prices = new_prices
-                self.locations = new_locations
+                if optimize_locations:
+                    self.locations = new_locations
             
             # Store history
             self.price_history.append(self.prices.copy())
-            self.location_history.append(self.locations.copy())
+            self.location_history.append(self.locations.copy()) # Store locations even if not optimized, to keep history consistent
             self.profit_history.append(self.total_profit(grid_size))
             
             # Check convergence
             price_change = np.max(np.abs(self.prices - old_prices))
-            location_change = np.max(np.abs(self.locations - old_locations))
+            if optimize_locations:
+                location_change = np.max(np.abs(self.locations - old_locations))
+            else:
+                location_change = 0.0 # No change if locations are not optimized
             
             if verbose:
                 elapsed = time.time() - start_time
-                print(f"Iteration {iteration+1}/{max_iterations}: "
-                     f"Price Δ = {price_change:.6f}, Location Δ = {location_change:.6f}, "
-                     f"Time = {elapsed:.2f}s")
+                log_msg = f"Iteration {final_iteration}/{max_iterations}: Price Δ = {price_change:.6f}"
+                if optimize_locations:
+                    log_msg += f", Location Δ = {location_change:.6f}"
+                log_msg += f", Time = {elapsed:.2f}s"
+                print(log_msg)
             
-            if price_change < tolerance and location_change < tolerance:
+            converged_prices = price_change < tolerance
+            converged_locations = True # Assume true if not optimizing locations
+            if optimize_locations:
+                converged_locations = location_change < tolerance
+            
+            if converged_prices and converged_locations:
                 elapsed_time_at_convergence = time.time() - start_time # Capture time at convergence
                 if verbose:
                     print(f"Converged after {final_iteration} iterations in {elapsed_time_at_convergence:.2f}s.")
