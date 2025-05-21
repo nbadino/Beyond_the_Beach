@@ -1239,11 +1239,44 @@ class HotellingTwoDimensional:
                 })
                 
                 # Check for firm exit (if any firm's profit is negative)
-                # As per user clarification, firms do not exit once entered, even if profits are negative.
-                # So, this part is commented out unless specified otherwise.
-                # if np.any(current_profits_market < 0):
-                #     if verbose_dynamic: print("One or more firms have negative profits. (Exit logic not yet implemented)")
-                #     pass # Implement exit logic if needed
+                if np.any(current_profits_market < 0):
+                    firms_to_remove_indices = np.where(current_profits_market < 0)[0]
+                    
+                    if verbose_dynamic:
+                        print(f"Firms at indices {firms_to_remove_indices} have negative profits and will exit.")
+
+                    # Create a mask for firms that stay
+                    staying_firms_mask = np.ones(current_n_firms_market, dtype=bool)
+                    staying_firms_mask[firms_to_remove_indices] = False
+                    
+                    exited_firm_details = []
+                    for idx_remove in sorted(firms_to_remove_indices, reverse=True): # Remove from end to keep indices valid
+                        exited_firm_details.append(f"Firm (original index {idx_remove+1}) at {current_locations_market[idx_remove]} exited with profit {current_profits_market[idx_remove]:.2f}.")
+
+                    current_locations_market = current_locations_market[staying_firms_mask]
+                    current_prices_market = current_prices_market[staying_firms_mask]
+                    # Profits are not carried over, they are recalculated or firms are gone
+                    
+                    num_exited = len(firms_to_remove_indices)
+                    current_n_firms_market -= num_exited
+                    
+                    self.dynamic_simulation_history.append({
+                        'period': period_num, # Still part of the even period's events
+                        'type': 'firm_exit', 
+                        'n_firms': current_n_firms_market, # Updated number of firms
+                        'locations': current_locations_market.copy(), 
+                        'prices': current_prices_market.copy(),
+                        'message': f"{num_exited} firm(s) exited due to negative profits. Details: {' '.join(exited_firm_details)}"
+                    })
+                    
+                    if verbose_dynamic:
+                        print(f"{num_exited} firm(s) exited. Market now has {current_n_firms_market} firms.")
+                
+                    # If all firms exit, the market is empty for the next entry stage
+                    if current_n_firms_market == 0:
+                        current_locations_market = np.empty((0,2))
+                        current_prices_market = np.empty((0,))
+
 
         if verbose_dynamic:
             print("\nDynamic entry simulation finished.")
