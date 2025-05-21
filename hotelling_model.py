@@ -1016,65 +1016,54 @@ class HotellingTwoDimensional:
                                          candidate_entry_location, 
                                          existing_locations, 
                                          existing_prices, 
-                                         grid_size_profit_calc, 
-                                         price_eq_max_iter, 
-                                         price_eq_tolerance,
-                                         update_method_price_eq):
+                                         grid_size_profit_calc):
         """
-        Calculates the profit an entrant would expect at candidate_entry_location,
-        after all firms (existing + entrant) reach a new price equilibrium.
+        Calculates the profit an entrant would expect at candidate_entry_location.
+        The entrant optimizes its own price, given fixed prices/locations of existing firms.
+        Returns: (expected_profit, optimal_entrant_price)
         """
         num_existing_firms = existing_locations.shape[0]
-        
+        entrant_idx = num_existing_firms # Index of the new entrant
+
         # Create a temporary model state for N+1 firms
         temp_locations = np.vstack([existing_locations, np.array(candidate_entry_location).reshape(1,2)])
-        # Initial price for entrant: could be c, or average of others, or based on a quick optimization.
-        # For simplicity, let's use a common starting point. find_equilibrium will adjust it.
-        temp_prices_entrant_guess = np.mean(existing_prices) if num_existing_firms > 0 else self.c * 1.5
-        temp_prices = np.append(existing_prices, temp_prices_entrant_guess)
+        
+        # Initial price guess for the entrant
+        entrant_price_guess = self.c * 1.5 
+        temp_prices = np.append(existing_prices, entrant_price_guess)
 
         # Store current model state to restore later
-        original_n_firms, original_locations, original_prices = self.n_firms, self.locations.copy(), self.prices.copy()
+        original_n_firms, original_locations, original_prices_state = self.n_firms, self.locations.copy(), self.prices.copy()
         
         # Temporarily set the model to the N+1 firm scenario
         self._initialize_firms(num_existing_firms + 1, temp_locations, temp_prices)
         
-        # Find price equilibrium for these N+1 firms
-        # Note: find_equilibrium modifies self.prices and self.locations (if optimize_locations=True)
-        # Here, locations are fixed for the price equilibrium stage.
-        eq_results = self.find_equilibrium(
-            max_iterations=price_eq_max_iter,
-            tolerance=price_eq_tolerance,
-            grid_size=grid_size_profit_calc,
-            update_method=update_method_price_eq,
-            verbose=False, # Keep it quiet during this internal optimization
-            optimize_locations=False 
-        )
+        # Entrant optimizes its own price, given other firms' prices are fixed
+        # The update_price method modifies self.prices[entrant_idx]
+        self.update_price(entrant_idx, grid_size_profit_calc) 
         
-        entrant_profit_at_equilibrium = 0
-        if eq_results['converged']:
-            # Profit for the new entrant (which is the last firm, index num_existing_firms)
-            entrant_profit_at_equilibrium = self.profit(num_existing_firms, grid_size_profit_calc)
+        optimal_entrant_price = self.prices[entrant_idx]
+        expected_profit = self.profit(entrant_idx, grid_size_profit_calc)
         
         # Restore original model state
-        self._initialize_firms(original_n_firms, original_locations, original_prices)
+        self._initialize_firms(original_n_firms, original_locations, original_prices_state)
         
-        return entrant_profit_at_equilibrium
+        return expected_profit, optimal_entrant_price
 
     def _find_optimal_entry_location_and_profit(self, 
                                                 existing_locations_np, 
                                                 existing_prices_np, 
-                                                grid_size_loc_opt, # Grid for optimizing entry location (can be coarse)
-                                                grid_size_profit_calc, # Grid for profit calculation within equilibrium
-                                                price_eq_max_iter, 
-                                                price_eq_tolerance,
-                                                update_method_price_eq):
+                                                grid_size_loc_opt, # Grid for optimizing entry location
+                                                grid_size_profit_calc): # Grid for profit calculation
         """
-        Finds the optimal entry location for a new firm and its expected profit.
-        Uses a grid search for location optimization for simplicity and speed.
+        Finds the optimal entry location for a new firm, its expected profit,
+        and its optimal price at that location (given fixed incumbents).
+        Uses a grid search for location optimization.
+        Returns: (best_location, max_expected_profit, optimal_price_at_best_location)
         """
         best_location = None
-        max_expected_profit = -np.inf # Entrant seeks to maximize this
+        max_expected_profit = -np.inf 
+        optimal_price_at_best_location = self.c * 1.5 # Default
 
         # Define a grid of potential entry locations
         loc_x_coords = np.linspace(0, self.market_shape[0], grid_size_loc_opt)
@@ -1087,25 +1076,25 @@ class HotellingTwoDimensional:
                 # Check if candidate_loc is too close to an existing firm (optional, to avoid trivial solutions)
                 # For now, we allow any location.
                 
-                expected_profit = self._get_expected_profit_for_entrant(
+                expected_profit, entrant_optimal_price = self._get_expected_profit_for_entrant(
                     candidate_loc, existing_locations_np, existing_prices_np,
-                    grid_size_profit_calc, price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                    grid_size_profit_calc
                 )
                 
                 if expected_profit > max_expected_profit:
                     max_expected_profit = expected_profit
                     best_location = candidate_loc
+                    optimal_price_at_best_location = entrant_optimal_price
         
         # If no profitable location found (e.g., all profits are negative or zero)
-        if best_location is None and grid_size_loc_opt > 0: # Ensure we actually searched
-             # Fallback: if no location yields positive profit, pick center, profit will be what it is.
-             best_location = np.array([self.market_shape[0]/2, self.market_shape[1]/2])
-             max_expected_profit = self._get_expected_profit_for_entrant(
+        if best_location is None and grid_size_loc_opt > 0: 
+             best_location = np.array([self.market_shape[0]/2, self.market_shape[1]/2]) # Fallback location
+             max_expected_profit, optimal_price_at_best_location = self._get_expected_profit_for_entrant(
                     best_location, existing_locations_np, existing_prices_np,
-                    grid_size_profit_calc, price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                    grid_size_profit_calc
                 )
 
-        return best_location, max_expected_profit
+        return best_location, max_expected_profit, optimal_price_at_best_location
 
     def run_dynamic_entry_simulation(self, 
                                      entry_cost_F, 
@@ -1146,16 +1135,16 @@ class HotellingTwoDimensional:
                     mono_results = self.solve_monopoly_case(grid_size=grid_size_price_eq) # Use price_eq grid for consistency
                     optimal_entry_location = mono_results["optimal_location"]
                     expected_profit_for_entrant = mono_results["maximized_profit"]
+                    entrant_initial_price_guess = mono_results["optimal_price"] # Price from monopoly solution
                     
                     # Restore original model state before potentially adding the firm
                     self._initialize_firms(original_n_firms_temp, original_loc_temp, original_prices_temp)
 
                 else: # Subsequent entrants
-                    optimal_entry_location, expected_profit_for_entrant = \
+                    optimal_entry_location, expected_profit_for_entrant, entrant_initial_price_guess = \
                         self._find_optimal_entry_location_and_profit(
                             current_locations_market, current_prices_market,
-                            grid_size_loc_opt, grid_size_price_eq,
-                            price_eq_max_iter, price_eq_tolerance, update_method_price_eq
+                            grid_size_loc_opt, grid_size_price_eq
                         )
 
                 # Entry condition: Present value of profits > Entry Cost
@@ -1170,17 +1159,8 @@ class HotellingTwoDimensional:
                         print(f"Firm {potential_entrant_idx} ENTERS the market.")
                     
                     current_locations_market = np.vstack([current_locations_market, optimal_entry_location.reshape(1,2)])
-                    # Price for new entrant: use the price that resulted from its profit optimization,
-                    # which is the price it expects to set in the N+1 firm equilibrium.
-                    # This requires a bit more work: _find_optimal_entry_location_and_profit should also return this price.
-                    # For now, let's add a placeholder price, it will be set in price competition stage.
-                    # A better placeholder would be the price from the internal equilibrium calculation.
-                    # Let's refine _get_expected_profit_for_entrant to return the full state.
-                    # For now, simple guess:
-                    entrant_initial_price_guess = self.c * 1.2 
-                    if current_n_firms_market == 0: # Monopoly price
-                         entrant_initial_price_guess = mono_results["optimal_price"]
-
+                    # The entrant_initial_price_guess is now determined by _find_optimal_entry_location_and_profit
+                    # or by the monopoly solution for the first entrant.
                     current_prices_market = np.append(current_prices_market, entrant_initial_price_guess)
                     current_n_firms_market += 1
                     
@@ -1188,8 +1168,8 @@ class HotellingTwoDimensional:
                         'period': period_num, 'type': 'entry', 
                         'n_firms': current_n_firms_market, 
                         'locations': current_locations_market.copy(), 
-                        'prices': current_prices_market.copy(), # Prices before re-equilibration
-                        'message': f"Firm {current_n_firms_market} entered at {optimal_entry_location}. Expected profit/period: {expected_profit_for_entrant:.2f}."
+                        'prices': current_prices_market.copy(), # Prices before general re-equilibration
+                        'message': f"Firm {current_n_firms_market} entered at {optimal_entry_location} with initial price {entrant_initial_price_guess:.2f}. Expected profit/period: {expected_profit_for_entrant:.2f}."
                     })
                 else:
                     if verbose_dynamic:
